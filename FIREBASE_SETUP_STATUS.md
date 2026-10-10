@@ -18,3 +18,11 @@
 
 ## Data safety
 The cloud database is intended to start empty. Existing local Room records are left on-device and are not automatically uploaded or deleted by this migration step.
+
+
+## Firebase project configuration updated
+- Replaced `app/google-services.json` with the configuration supplied for Firebase project `ams-manager-b1434` and Android package `com.ams.mgr`.
+- Updated the app’s Google Sign-In Web OAuth client ID to match the supplied Firebase configuration.
+- Updated Firebase CLI/backend project references to `ams-manager-b1434`.
+- The supplied configuration lists Android certificate SHA-1 `7ea3ca9b4bd61249c2f70ec58a2c5b691d1801bd`; confirm this matches the signing certificate used by the APK you install.
+- This configuration update does not itself enable Email/Password provider or create teacher accounts. Admin login currently uses Google Sign-In; teacher login uses the callable `teacherLogin` backend.

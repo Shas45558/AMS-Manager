@@ -11,7 +11,7 @@ service cloud.firestore {
       return signedIn() && (
         isAdmin() ||
         (request.auth.token.role == 'teacher'
-          && request.auth.token.schoolId == 'school-manager-b0578')
+          && request.auth.token.schoolId == 'ams-manager-b1434')
       );
     }
 
@@ -19,7 +19,7 @@ service cloud.firestore {
     // for this school can read/write. More granular write restrictions should
     // be added if teachers must have read-only or subject-specific access.
     match /schools/{schoolId}/{document=**} {
-      allow read, write: if isSchoolUser() && schoolId == 'school-manager-b0578';
+      allow read, write: if isSchoolUser() && schoolId == 'ams-manager-b1434';
     }
 
     // Teacher credential records must never be directly readable from clients.

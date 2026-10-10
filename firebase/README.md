@@ -1,6 +1,6 @@
 # Firebase setup — AMS Manager
 
-Project: `school-manager-b0578`  
+Project: `ams-manager-b1434`  
 Android package: `com.ams.mgr`  
 Admin allowlist: `shas45558@gmail.com`
 
@@ -13,7 +13,7 @@ The app's existing on-device Room database is not erased by these files. The Fir
 ## Deploy backend and rules
 1. Install Node.js 20 and Firebase CLI on a trusted computer.
 2. From this `firebase/` folder, run `firebase login`.
-3. Confirm `firebase use school-manager-b0578`.
+3. Confirm `firebase use ams-manager-b1434`.
 4. Run `npm --prefix functions install`.
 5. Deploy with `firebase deploy --only firestore:rules,functions`.
 
@@ -25,7 +25,7 @@ Configured the supplied Web OAuth client ID in `app/google-services.json` under 
 
 ## Rules and schema
 The rules deny access by default. App data must live under:
-`schools/school-manager-b0578/...`
+`schools/ams-manager-b1434/...`
 Teacher credential documents live in `teacherCredentials/{userId}` and are explicitly inaccessible to clients. The Cloud Functions use the Admin SDK to manage them.
 
 Before production, additionally enable Firebase App Check, configure rate limiting/abuse protection for teacher login, test rules with the emulator, and add more granular teacher permissions if required.

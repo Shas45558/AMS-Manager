@@ -17,3 +17,7 @@ This package removes Google Drive-based database synchronization and moves sign-
 - A full Android build could not be run in this environment because `gradle-wrapper.jar` is absent. The provided GitHub Actions workflow bootstraps the wrapper; run CI and test on a device before release.
 
 See `FIREBASE_SETUP_STATUS.md` for status and next steps.
+
+
+## Firebase project
+This version is configured for Firebase project `ams-manager-b1434` and Android package `com.ams.mgr`. The `app/google-services.json` file must remain in place. Enable the required Firebase Authentication providers in the Firebase Console and deploy the backend before testing teacher login.

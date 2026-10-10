@@ -8,7 +8,7 @@ initializeApp();
 const auth = getAuth();
 const db = getFirestore();
 
-const PROJECT_SCHOOL_ID = "school-manager-b0578";
+const PROJECT_SCHOOL_ID = "ams-manager-b1434";
 const ADMIN_EMAIL = "shas45558@gmail.com";
 
 async function requireAdmin(request) {

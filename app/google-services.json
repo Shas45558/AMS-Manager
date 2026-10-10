@@ -1,28 +1,41 @@
 {
   "project_info": {
-    "project_number": "632798008209",
-    "project_id": "school-manager-b0578",
-    "storage_bucket": "school-manager-b0578.firebasestorage.app"
+    "project_number": "891410663079",
+    "project_id": "ams-manager-b1434",
+    "storage_bucket": "ams-manager-b1434.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:632798008209:android:245ffbd240b602eaacc030",
+        "mobilesdk_app_id": "1:891410663079:android:78d04bb25da7afd092bd82",
         "android_client_info": {
           "package_name": "com.ams.mgr"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "891410663079-e9gg9t0asfuc02lo74mi9vhoac2kf4cg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ams.mgr",
+            "certificate_hash": "7ea3ca9b4bd61249c2f70ec58a2c5b691d1801bd"
+          }
+        },
+        {
+          "client_id": "891410663079-j2qnup0bc2a017dl4je985t6h4oobo0f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyBBy4Ce6I1GTGnrkXUbGJDV6NjzHRtt1Y4"
+          "current_key": "AIzaSyD1dgqlVdcggaQMhPyhHkG4rHeBlNGYYCc"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "632798008209-3aoq8i0auppniis706rirti9iuuebog2.apps.googleusercontent.com",
+              "client_id": "891410663079-j2qnup0bc2a017dl4je985t6h4oobo0f.apps.googleusercontent.com",
               "client_type": 3
             }
           ]
