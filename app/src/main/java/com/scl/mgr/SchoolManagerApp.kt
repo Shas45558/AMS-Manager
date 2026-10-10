@@ -481,6 +481,7 @@ private fun AuthorizationScreen() {
             Text("No teacher records to display. Tap Refresh after creating a teacher.", style = MaterialTheme.typography.bodyMedium)
         }
         teachers.forEach { teacher ->
+            var confirmDeleteProfile by remember(teacher.uid) { mutableStateOf(false) }
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Login ID: ${teacher.userId}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -515,6 +516,32 @@ private fun AuthorizationScreen() {
                                 finally { busy = false }
                             }
                         }, modifier = Modifier.weight(1f)) { Text(if (teacher.enabled) "Disable" else "Enable") }
+                    }
+                    OutlinedButton(enabled = !busy, onClick = { confirmDeleteProfile = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Delete, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Delete teacher profile")
+                    }
+                    if (confirmDeleteProfile) {
+                        AlertDialog(
+                            onDismissRequest = { confirmDeleteProfile = false },
+                            title = { Text("Delete teacher profile?") },
+                            text = { Text("This removes ${teacher.userId}'s Firestore profile so the account can no longer use AMS Manager. It does not delete the Firebase Authentication account or historical school records.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    confirmDeleteProfile = false
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            firestore.collection("teacherAccounts").document(teacher.uid).delete().await()
+                                            teachers = teachers.filterNot { it.uid == teacher.uid }
+                                            displayNameEdits = displayNameEdits - teacher.uid
+                                            message = "Deleted profile for ${teacher.userId}. Authentication account and historical records were not deleted."
+                                        } catch (e: Exception) { message = "Profile delete failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }
+                                        finally { busy = false }
+                                    }
+                                }) { Text("Delete profile") }
+                            },
+                            dismissButton = { TextButton(onClick = { confirmDeleteProfile = false }) { Text("Cancel") } }
+                        )
                     }
                 }
             }
@@ -1063,8 +1090,8 @@ private fun FirebaseSyncScreen() {
     var status by remember { mutableStateOf("Signed in as: ${auth.currentUser?.email ?: auth.currentUser?.uid ?: "not signed in"}. Cloud sync has not run yet.") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Firebase Sync", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Sync students, attendance, monthly exam scores, and exam marks between this device and the AMS Manager Firebase cloud.")
-        Text("Sync merges records and does not delete missing local or cloud records. If the same record was edited on multiple devices, the latest sync may overwrite that record; use one device for editing until conflict handling is added.")
+        Text("Manual Sync uploads and downloads students, attendance, Monthly Exam marks, and Exams & Results marks between this device and the AMS Manager Firebase cloud. Saving a mark stores it on this device first; tap Sync to send it to Firebase.")
+        Text("Student deletions are now queued and synchronized to Firebase, including related attendance and exam records. Sync requires internet. If the same mark is edited on multiple devices before syncing, the last upload can overwrite it; avoid editing the same record on two devices at once.")
         Text(status, style = MaterialTheme.typography.bodyMedium)
         Button(enabled = !busy && auth.currentUser != null, onClick = {
             busy = true

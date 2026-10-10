@@ -40,6 +40,9 @@ interface StudentDao {
     @Delete
     suspend fun delete(student: Student)
 
+    @Query("DELETE FROM students WHERE id = :studentId")
+    suspend fun deleteById(studentId: Long)
+
     @Query("SELECT COUNT(*) FROM students")
     fun observeCount(): Flow<Int>
 }

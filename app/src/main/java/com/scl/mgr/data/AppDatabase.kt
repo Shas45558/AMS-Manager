@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Student::class, Attendance::class, MonthlyExam::class, ExamMark::class, TeacherAccount::class],
-    version = 5,
+    entities = [Student::class, Attendance::class, MonthlyExam::class, ExamMark::class, TeacherAccount::class, PendingStudentDeletion::class],
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -18,6 +18,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun monthlyExamDao(): MonthlyExamDao
     abstract fun examMarkDao(): ExamMarkDao
     abstract fun teacherAccountDao(): TeacherAccountDao
+    abstract fun pendingStudentDeletionDao(): PendingStudentDeletionDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -65,6 +66,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS pending_student_deletions (studentId INTEGER NOT NULL PRIMARY KEY, deletedAt INTEGER NOT NULL)")
+            }
+        }
+
         @Volatile private var INSTANCE: AppDatabase? = null
 
         fun get(context: Context): AppDatabase =
@@ -74,7 +81,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "school_manager.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { INSTANCE = it }
             }

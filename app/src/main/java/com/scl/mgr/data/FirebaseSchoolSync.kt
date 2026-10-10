@@ -4,7 +4,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-/** Merge-only Room <-> Firestore sync. It never deletes local or cloud documents. */
+/** Room <-> Firestore sync with durable student deletion tombstones. */
 class FirebaseSchoolSync(private val db: AppDatabase) {
     private val firestore = FirebaseFirestore.getInstance()
     private val school = firestore.collection("schools").document(SCHOOL_ID)
@@ -24,12 +24,37 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             throw SecurityException("Verify the administrator email before syncing.")
         }
 
+        // Apply cloud deletion markers before uploading local rows, so stale local copies
+        // from another device cannot recreate a deleted student. Local pending markers
+        // are uploaded first and remain until all deletion work succeeds.
+        val tombstoneCollection = school.collection("deletedStudents")
+        val remoteDeletedIds = tombstoneCollection.get().await().documents.mapNotNull {
+            (it.get("studentId") as? Number)?.toLong() ?: it.id.toLongOrNull()
+        }.toSet()
+        val localPending = db.pendingStudentDeletionDao().getAllOnce().map { it.studentId }.toSet()
+        val deletedIds = remoteDeletedIds + localPending
+        for (studentId in deletedIds) {
+            if (studentId in localPending) {
+                tombstoneCollection.document(studentId.toString()).set(mapOf(
+                    "studentId" to studentId, "deletedAt" to System.currentTimeMillis()
+                )).await()
+            }
+            school.collection("students").document(studentId.toString()).delete().await()
+            school.collection("attendance").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+            school.collection("monthlyExams").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+            school.collection("examMarks").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+            db.attendanceDao().deleteForStudent(studentId)
+            db.monthlyExamDao().deleteForStudent(studentId)
+            db.examMarkDao().deleteForStudent(studentId)
+            db.studentDao().deleteById(studentId)
+        }
+
         val students = db.studentDao().getAllOnce()
         val attendance = db.attendanceDao().getAllOnce()
         val monthly = db.monthlyExamDao().getAllOnce()
         val marks = db.examMarkDao().getAllOnce()
 
-        // Upload first; deterministic document IDs make repeated syncs idempotent.
+        // Upload local records; deterministic document IDs make repeated syncs idempotent.
         students.forEach { s -> school.collection("students").document(s.id.toString()).set(mapOf(
             "id" to s.id, "studentName" to s.studentName, "studentId" to s.studentId,
             "className" to s.className, "section" to s.section, "gender" to s.gender,
@@ -74,6 +99,7 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             ExamMark(id, m.str("examType"), m.str("subjectKey"), m.int("cq"), m.int("mcq"))
         }
         db.examMarkDao().upsertAll(marksRemote)
+        localPending.forEach { db.pendingStudentDeletionDao().remove(it) }
         return SyncReport(students.size, attendance.size, monthly.size, marks.size)
     }
 
