@@ -31,3 +31,7 @@ The cloud database is intended to start empty. Existing local Room records are l
 The Android Sync screen now attempts a merge-only synchronization for `students`, `attendance`, `monthlyExams`, and `examMarks` under `schools/ams-manager-b1434/`. It uploads current local rows using deterministic Firestore document IDs and merges cloud rows into Room. It does not propagate deletions and does not sync teacher credential hashes. The signed-in admin must be `shas45558@gmail.com` with a verified email; teacher sync requires the expected custom claims and Firestore rules.
 
 Before relying on this in production, run a successful Android build and test with a disposable record. Current merge strategy does not implement conflict resolution or deletion tombstones; avoid editing the same record on multiple devices simultaneously. Deploy the `firebase/firestore.rules` rules before attempting sync. Cloud Functions are not required for the record sync itself, but remain required for teacher account operations.
+
+
+## Spark-compatible teacher authentication update
+The teacher account flow has been switched from callable Cloud Functions/custom tokens to Firebase email/password authentication with a secondary Firebase app. Teacher roles are stored in `teacherAccounts/{uid}` and protected by Firestore rules so only the verified administrator email can create or modify role records. Deploy `firebase/firestore.rules`; do not deploy Cloud Functions for this design. Existing callable-function-created teacher accounts need to be recreated in the new format.

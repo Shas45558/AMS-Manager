@@ -43,9 +43,10 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.tasks.await
 import com.ams.mgr.data.SchoolRepository
 import com.ams.mgr.data.Student
@@ -347,9 +348,16 @@ private fun LoginScreen(
                 busy = true; error = ""
                 scope.launch {
                     try {
-                        val result = FirebaseFunctions.getInstance().getHttpsCallable("teacherLogin").call(mapOf("userId" to teacherId.trim().lowercase(), "password" to password)).await()
-                        val token = (result.getData() as? Map<*, *>)?.get("token") as? String ?: throw IllegalStateException("Backend did not return a login token")
-                        FirebaseAuth.getInstance().signInWithCustomToken(token).await()
+                        val normalizedId = teacherId.trim().lowercase()
+                        val email = "$normalizedId@ams-manager.invalid"
+                        val auth = FirebaseAuth.getInstance()
+                        auth.signInWithEmailAndPassword(email, password).await()
+                        val uid = auth.currentUser?.uid ?: throw IllegalStateException("Sign-in did not return a user")
+                        val profile = FirebaseFirestore.getInstance().collection("teacherAccounts").document(uid).get().await()
+                        if (!profile.exists() || profile.getString("role") != "teacher" || profile.getString("schoolId") != "ams-manager-b1434" || profile.getBoolean("enabled") != true) {
+                            auth.signOut()
+                            throw SecurityException("This account is not an enabled teacher account.")
+                        }
                         finishLogin("Teacher")
                     } catch (e: Exception) { error = "Teacher login failed: ${e.message ?: "Check credentials and internet."}" }
                     finally { busy = false }
@@ -367,29 +375,63 @@ private fun LoginScreen(
 
 @Composable
 private fun AuthorizationScreen() {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var userId by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var confirmPassword by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Create Teacher Account", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Only the authorized administrator can create accounts. Credentials are verified by the Firebase backend.")
-        OutlinedTextField(userId, { userId = it.trim() }, label = { Text("New User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text("Only the signed-in administrator shas45558@gmail.com can create teacher records. Teacher accounts use email/password sign-in behind the User ID.")
+        OutlinedTextField(userId, { userId = it.trim().lowercase() }, label = { Text("New User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, { password = it }, label = { Text("Password (at least 10 characters)") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         OutlinedTextField(confirmPassword, { confirmPassword = it }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Button(enabled = !busy, onClick = {
-            when { userId.isBlank() || password.length < 10 -> message = "Enter a User ID and a password of at least 10 characters."; password != confirmPassword -> message = "Passwords do not match."; else -> {
-                busy = true; message = ""
-                scope.launch { try {
-                    FirebaseFunctions.getInstance().getHttpsCallable("adminCreateTeacher").call(mapOf("userId" to userId.trim().lowercase(), "password" to password)).await()
-                    message = "Teacher account created."; userId = ""; password = ""; confirmPassword = ""
-                } catch (e: Exception) { message = "Could not create account: ${e.message ?: "Unknown error"}" } finally { busy = false } }
-            }
+            val admin = FirebaseAuth.getInstance().currentUser
+            when {
+                admin?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || admin.isEmailVerified != true -> message = "Only the verified administrator shas45558@gmail.com can create accounts."
+                !userId.matches(Regex("^[a-z0-9._-]{3,40}$")) -> message = "User ID must be 3–40 characters: letters, numbers, dot, underscore or hyphen."
+                password.length < 10 || password.length > 128 -> message = "Use a password between 10 and 128 characters."
+                password != confirmPassword -> message = "Passwords do not match."
+                else -> {
+                    busy = true; message = ""
+                    scope.launch {
+                        var secondaryAuth: FirebaseAuth? = null
+                        try {
+                            val creatorApp = try {
+                                FirebaseApp.getInstance("teacherCreator")
+                            } catch (_: IllegalStateException) {
+                                FirebaseApp.initializeApp(context, FirebaseApp.getInstance().options, "teacherCreator")
+                                    ?: FirebaseApp.getInstance("teacherCreator")
+                            }
+                            secondaryAuth = FirebaseAuth.getInstance(creatorApp)
+                            val email = "$userId@ams-manager.invalid"
+                            val result = secondaryAuth.createUserWithEmailAndPassword(email, password).await()
+                            val uid = result.user?.uid ?: throw IllegalStateException("Firebase did not return a new teacher UID")
+                            try {
+                                FirebaseFirestore.getInstance().collection("teacherAccounts").document(uid).set(mapOf(
+                                    "userId" to userId,
+                                    "role" to "teacher",
+                                    "schoolId" to "ams-manager-b1434",
+                                    "enabled" to true
+                                )).await()
+                            } catch (e: Exception) {
+                                try { result.user?.delete()?.await() } catch (_: Exception) { }
+                                throw e
+                            }
+                            secondaryAuth.signOut()
+                            message = "Teacher account created. Give the teacher the User ID and password securely."
+                            userId = ""; password = ""; confirmPassword = ""
+                        } catch (e: Exception) {
+                            secondaryAuth?.signOut()
+                            message = "Could not create account: ${e.message ?: "Check admin sign-in, internet, and Firebase Authentication settings."}"
+                        } finally { busy = false }
+                    }
+                }
             }
         }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Creating…" else "Create User") }
         if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.primary)
     }
 }
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

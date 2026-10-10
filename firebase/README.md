@@ -1,31 +1,26 @@
-# Firebase setup — AMS Manager
+# Firebase setup — AMS Manager (Spark-compatible teacher accounts)
 
 Project: `ams-manager-b1434`  
 Android package: `com.ams.mgr`  
-Admin allowlist: `shas45558@gmail.com`
+Only administrator: `shas45558@gmail.com`
 
-## Important current status
-This folder adds a **secure backend starting point and restrictive Firestore rules**. It does NOT by itself complete Android Firebase login or Room↔Firestore synchronization. The Android source still contains Google Drive synchronization code; do not treat this ZIP as a finished Firebase migration/release.
+## Teacher account design
+- Admin signs in using Google with the allowlisted administrator account.
+- The app creates Firebase Authentication email/password accounts using a secondary Firebase app instance so creating a teacher does not sign out the admin. The teacher User ID is represented internally as `<userId>@ams-manager.invalid`.
+- The signed-in admin writes `teacherAccounts/{uid}`. Firestore rules allow only the verified admin email to create/update/delete these profiles.
+- Teachers sign in with their User ID and password. Firestore rules authorize their school data only if their UID has an enabled teacher profile for this project.
+- No Cloud Functions or Firebase Admin SDK are used by this path. Do not put service-account credentials in the app.
 
-## Empty cloud database choice
-The app's existing on-device Room database is not erased by these files. The Firebase cloud can start empty. No local records are uploaded automatically by this starter package.
+## Setup on Firebase Console
+1. In Authentication → Sign-in method, enable Email/Password and Google.
+2. In Firestore Database → Rules, publish the rules in `firestore.rules`.
+3. Keep the only admin as `shas45558@gmail.com`; do not add any other admin.
+4. Rebuild and install the updated app.
+5. Sign in as admin and create a new test teacher with a 10+ character password. Sign out, then sign in using the test teacher User ID and password.
+6. Test Sync with non-sensitive sample data before production.
 
-## Deploy backend and rules
-1. Install Node.js 20 and Firebase CLI on a trusted computer.
-2. From this `firebase/` folder, run `firebase login`.
-3. Confirm `firebase use ams-manager-b1434`.
-4. Run `npm --prefix functions install`.
-5. Deploy with `firebase deploy --only firestore:rules,functions`.
-
-Cloud Functions deployment may require the Firebase project's billing plan (Blaze). Do not deploy if you do not intend to enable billing.
-Do not put service-account JSON/private keys in the Android app or GitHub source.
-
-## Admin Google authentication prerequisite
-Configured the supplied Web OAuth client ID in `app/google-services.json` under `other_platform_oauth_client`: `632798008209-3aoq8i0auppniis706rirti9iuuebog2.apps.googleusercontent.com`. The `oauth_client` list for Android remains empty because the Android OAuth client is a separate client. Confirm in Google Cloud that an Android OAuth client exists for package `com.ams.mgr` and the release SHA-1/SHA-256 fingerprints. Do not paste private keys or passwords into chat.
-
-## Rules and schema
-The rules deny access by default. App data must live under:
-`schools/ams-manager-b1434/...`
-Teacher credential documents live in `teacherCredentials/{userId}` and are explicitly inaccessible to clients. The Cloud Functions use the Admin SDK to manage them.
-
-Before production, additionally enable Firebase App Check, configure rate limiting/abuse protection for teacher login, test rules with the emulator, and add more granular teacher permissions if required.
+## Important limitations
+- This is client-side account creation. The app UI restricts creation to the allowlisted admin, and Firestore rules prevent other users from creating teacher profiles or granting themselves teacher access. Firebase Authentication may still permit unrelated email/password accounts to be created by clients; those accounts cannot access school data without an admin-created teacher profile.
+- Existing accounts created by the old Cloud Functions/custom-token flow will not sign in with the new alias format. Recreate teacher accounts through the updated admin screen.
+- Do not deploy `firebase/functions` for this Spark-compatible design. Cloud Functions require Blaze.
+- Verify the build and test Firestore rules before distributing the APK.

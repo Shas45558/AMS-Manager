@@ -7,27 +7,31 @@ service cloud.firestore {
         && request.auth.token.email == 'shas45558@gmail.com'
         && request.auth.token.email_verified == true;
     }
-    function isSchoolUser() {
-      return signedIn() && (
-        isAdmin() ||
-        (request.auth.token.role == 'teacher'
-          && request.auth.token.schoolId == 'ams-manager-b1434')
-      );
+    function isEnabledTeacher() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid))
+        && get(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid)).data.role == 'teacher'
+        && get(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid)).data.schoolId == 'ams-manager-b1434'
+        && get(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid)).data.enabled == true;
+    }
+    function isSchoolUser() { return isAdmin() || isEnabledTeacher(); }
+
+    // Teacher profiles can be read by their owner and the admin, but only the
+    // verified, allowlisted administrator can create/update/delete profiles.
+    match /teacherAccounts/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create, update, delete: if isAdmin();
     }
 
-    // All school records are private. Only authenticated admin/teacher claims
-    // for this school can read/write. More granular write restrictions should
-    // be added if teachers must have read-only or subject-specific access.
-    match /schools/{schoolId}/{document=**} {
-      allow read, write: if isSchoolUser() && schoolId == 'ams-manager-b1434';
-    }
-
-    // Teacher credential records must never be directly readable from clients.
+    // Legacy credential hashes are never accessible to clients.
     match /teacherCredentials/{document=**} {
       allow read, write: if false;
     }
 
-    // Deny all unspecified paths by default.
+    match /schools/{schoolId}/{document=**} {
+      allow read, write: if isSchoolUser() && schoolId == 'ams-manager-b1434';
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

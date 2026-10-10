@@ -15,9 +15,9 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         user.reload().await()
         val email = user.email?.trim()?.lowercase()
         if (email != ADMIN_EMAIL) {
-            // Teacher accounts are supported by backend claims; Firestore rules determine their access.
-            val token = user.getIdToken(false).await()
-            if (token.claims["role"] != "teacher" || token.claims["schoolId"] != SCHOOL_ID) {
+            // Spark-compatible role check: role records are writable only by the verified admin.
+            val profile = firestore.collection("teacherAccounts").document(user.uid).get().await()
+            if (!profile.exists() || profile.getString("role") != "teacher" || profile.getString("schoolId") != SCHOOL_ID || profile.getBoolean("enabled") != true) {
                 throw SecurityException("This account is not authorized to sync school records.")
             }
         } else if (user.isEmailVerified != true) {
