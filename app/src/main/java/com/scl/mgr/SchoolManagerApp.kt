@@ -52,6 +52,7 @@ import com.ams.mgr.data.Student
 import com.ams.mgr.data.MonthlyExam
 import com.ams.mgr.data.AppDatabase
 import com.ams.mgr.data.ExamMark
+import com.ams.mgr.data.FirebaseSchoolSync
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -925,17 +926,38 @@ private fun StudentDetailsScreen(
 private fun FirebaseSyncScreen() {
     val context = LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
-    var status by remember { mutableStateOf("Firebase sign-in: ${auth.currentUser?.email ?: auth.currentUser?.uid ?: "not signed in"}") }
+    val scope = rememberCoroutineScope()
+    val syncer = remember { FirebaseSchoolSync(AppDatabase.get(context)) }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("Signed in as: ${auth.currentUser?.email ?: auth.currentUser?.uid ?: "not signed in"}. Cloud sync has not run yet.") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Firebase Sync", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Google Drive has been removed from this app. Authentication now uses Firebase Authentication, and teacher account operations use the trusted Firebase Functions backend.")
-        Text("Cloud record synchronization is not enabled in this migration step. Your existing local Room database has not been uploaded or cleared.")
+        Text("Sync students, attendance, monthly exam scores, and exam marks between this device and the AMS Manager Firebase cloud.")
+        Text("Sync merges records and does not delete missing local or cloud records. If the same record was edited on multiple devices, the latest sync may overwrite that record; use one device for editing until conflict handling is added.")
         Text(status, style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = { status = "Firebase user: ${auth.currentUser?.email ?: auth.currentUser?.uid ?: "not signed in"}. Cloud data sync still needs its collection-level implementation." }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Sync, null); Spacer(Modifier.width(8.dp)); Text("Check Firebase Status") }
-        OutlinedButton(onClick = { auth.signOut(); GoogleSignIn.getClient(context, com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN).signOut(); status = "Signed out of Firebase." }, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
+        Button(enabled = !busy && auth.currentUser != null, onClick = {
+            busy = true
+            status = "Syncing school records… keep the app open and connected to the internet."
+            scope.launch {
+                try {
+                    val report = syncer.sync()
+                    status = "Sync completed successfully. Uploaded local records: ${report.studentsUploaded} students, ${report.attendanceUploaded} attendance entries, ${report.monthlyExamsUploaded} monthly exam records, and ${report.examMarksUploaded} exam marks. Cloud records were merged into this device."
+                } catch (e: Exception) {
+                    status = "Sync failed: ${e.localizedMessage ?: e.javaClass.simpleName}. Check internet, Firebase Authentication, and deployed Firestore rules, then retry."
+                } finally { busy = false }
+            }
+        }, modifier = Modifier.fillMaxWidth()) {
+            if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            else Icon(Icons.Default.Sync, null)
+            Spacer(Modifier.width(8.dp)); Text(if (busy) "Syncing…" else "Sync School Records")
+        }
+        OutlinedButton(enabled = !busy, onClick = {
+            auth.signOut()
+            GoogleSignIn.getClient(context, com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN).signOut()
+            status = "Signed out. Sign in again to sync."
+        }, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
     }
 }
-
 
 @Composable
 private fun DemoScreen(name: String) {

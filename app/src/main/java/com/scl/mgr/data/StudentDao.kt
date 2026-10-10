@@ -31,6 +31,9 @@ interface StudentDao {
     @Insert
     suspend fun insert(student: Student): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(student: Student)
+
     @Update
     suspend fun update(student: Student)
 

@@ -26,3 +26,8 @@ The cloud database is intended to start empty. Existing local Room records are l
 - Updated Firebase CLI/backend project references to `ams-manager-b1434`.
 - The supplied configuration lists Android certificate SHA-1 `7ea3ca9b4bd61249c2f70ec58a2c5b691d1801bd`; confirm this matches the signing certificate used by the APK you install.
 - This configuration update does not itself enable Email/Password provider or create teacher accounts. Admin login currently uses Google Sign-In; teacher login uses the callable `teacherLogin` backend.
+
+## Room ↔ Firestore sync implementation (2026-10-10)
+The Android Sync screen now attempts a merge-only synchronization for `students`, `attendance`, `monthlyExams`, and `examMarks` under `schools/ams-manager-b1434/`. It uploads current local rows using deterministic Firestore document IDs and merges cloud rows into Room. It does not propagate deletions and does not sync teacher credential hashes. The signed-in admin must be `shas45558@gmail.com` with a verified email; teacher sync requires the expected custom claims and Firestore rules.
+
+Before relying on this in production, run a successful Android build and test with a disposable record. Current merge strategy does not implement conflict resolution or deletion tombstones; avoid editing the same record on multiple devices simultaneously. Deploy the `firebase/firestore.rules` rules before attempting sync. Cloud Functions are not required for the record sync itself, but remain required for teacher account operations.
