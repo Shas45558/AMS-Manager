@@ -146,7 +146,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        val visibleItems = if (activeRole == "Admin") items else items.filter { it.route !in setOf("settings") }
+                        val visibleItems = items // Teachers also need the Sync destination to upload/download their records.
                         items(visibleItems, key = { it.route }) { item ->
                             NavigationDrawerItem(
                                 label = {
@@ -373,15 +373,50 @@ private fun LoginScreen(
 }
 
 
+private data class TeacherAdminRow(
+    val uid: String,
+    val userId: String,
+    val displayName: String,
+    val enabled: Boolean
+)
+
 @Composable
 private fun AuthorizationScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val firestore = remember { FirebaseFirestore.getInstance() }
     var userId by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var confirmPassword by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }
+    var teachers by remember { mutableStateOf<List<TeacherAdminRow>>(emptyList()) }
+    var loadingTeachers by remember { mutableStateOf(false) }
+    var displayNameEdits by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    fun loadTeachers() {
+        val admin = FirebaseAuth.getInstance().currentUser
+        if (admin?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || admin.isEmailVerified != true) {
+            message = "Only the verified administrator can view teacher accounts."
+            return
+        }
+        loadingTeachers = true
+        scope.launch {
+            try {
+                val result = firestore.collection("teacherAccounts").whereEqualTo("role", "teacher").get().await()
+                teachers = result.documents.mapNotNull { doc ->
+                    val id = doc.getString("userId") ?: return@mapNotNull null
+                    TeacherAdminRow(doc.id, id, doc.getString("displayName") ?: id, doc.getBoolean("enabled") == true)
+                }.sortedBy { it.userId }
+                displayNameEdits = teachers.associate { it.uid to it.displayName }
+                message = if (teachers.isEmpty()) "No teacher accounts found yet." else "Loaded ${teachers.size} teacher account(s)."
+            } catch (e: Exception) {
+                message = "Could not load teacher list: ${e.localizedMessage ?: e.javaClass.simpleName}"
+            } finally { loadingTeachers = false }
+        }
+    }
+
+    LaunchedEffect(Unit) { loadTeachers() }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Create Teacher Account", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Only the signed-in administrator shas45558@gmail.com can create teacher records. Teacher accounts use email/password sign-in behind the User ID.")
+        Text("Teacher Accounts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Signed-in administrator: shas45558@gmail.com. You can view teacher IDs, update their display names, and enable or disable access.")
         OutlinedTextField(userId, { userId = it.trim().lowercase() }, label = { Text("New User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, { password = it }, label = { Text("Password (at least 10 characters)") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         OutlinedTextField(confirmPassword, { confirmPassword = it }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
@@ -410,6 +445,7 @@ private fun AuthorizationScreen() {
                             try {
                                 FirebaseFirestore.getInstance().collection("teacherAccounts").document(uid).set(mapOf(
                                     "userId" to userId,
+                                    "displayName" to userId,
                                     "role" to "teacher",
                                     "schoolId" to "ams-manager-b1434",
                                     "enabled" to true
@@ -421,6 +457,7 @@ private fun AuthorizationScreen() {
                             secondaryAuth.signOut()
                             message = "Teacher account created. Give the teacher the User ID and password securely."
                             userId = ""; password = ""; confirmPassword = ""
+                            loadTeachers()
                         } catch (e: Exception) {
                             secondaryAuth?.signOut()
                             message = "Could not create account: ${e.message ?: "Check admin sign-in, internet, and Firebase Authentication settings."}"
@@ -429,7 +466,59 @@ private fun AuthorizationScreen() {
                 }
             }
         }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Creating…" else "Create User") }
-        if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.primary)
+        if (message.isNotBlank()) Text(message, color = if (message.startsWith("Could not") || message.startsWith("Only")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Manage Teacher IDs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { loadTeachers() }, enabled = !loadingTeachers) {
+                if (loadingTeachers) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Refresh, contentDescription = null)
+                Spacer(Modifier.width(4.dp)); Text("Refresh")
+            }
+        }
+        Text("The login ID is tied to the Firebase Authentication account and cannot be renamed from this Spark-only app. To change a login ID, create a new ID and disable the old one. Removing access below disables the profile; it does not delete the underlying Firebase Authentication user.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (teachers.isEmpty() && !loadingTeachers) {
+            Text("No teacher records to display. Tap Refresh after creating a teacher.", style = MaterialTheme.typography.bodyMedium)
+        }
+        teachers.forEach { teacher ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Login ID: ${teacher.userId}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(if (teacher.enabled) "Status: Enabled" else "Status: Disabled", color = if (teacher.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                    OutlinedTextField(
+                        value = displayNameEdits[teacher.uid] ?: teacher.displayName,
+                        onValueChange = { displayNameEdits = displayNameEdits + (teacher.uid to it) },
+                        label = { Text("Teacher display name") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(enabled = !busy && (displayNameEdits[teacher.uid] ?: teacher.displayName).isNotBlank(), onClick = {
+                            val newName = (displayNameEdits[teacher.uid] ?: teacher.displayName).trim()
+                            scope.launch {
+                                busy = true
+                                try {
+                                    firestore.collection("teacherAccounts").document(teacher.uid).update("displayName", newName).await()
+                                    teachers = teachers.map { if (it.uid == teacher.uid) it.copy(displayName = newName) else it }
+                                    message = "Updated profile for ${teacher.userId}."
+                                } catch (e: Exception) { message = "Update failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }
+                                finally { busy = false }
+                            }
+                        }, modifier = Modifier.weight(1f)) { Text("Save name") }
+                        Button(enabled = !busy, onClick = {
+                            scope.launch {
+                                busy = true
+                                try {
+                                    val newEnabled = !teacher.enabled
+                                    firestore.collection("teacherAccounts").document(teacher.uid).update("enabled", newEnabled).await()
+                                    teachers = teachers.map { if (it.uid == teacher.uid) it.copy(enabled = newEnabled) else it }
+                                    message = if (newEnabled) "Enabled ${teacher.userId}." else "Disabled ${teacher.userId}; app access is blocked."
+                                } catch (e: Exception) { message = "Status update failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }
+                                finally { busy = false }
+                            }
+                        }, modifier = Modifier.weight(1f)) { Text(if (teacher.enabled) "Disable" else "Enable") }
+                    }
+                }
+            }
+        }
     }
 }
 
