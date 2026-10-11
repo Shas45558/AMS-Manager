@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.content.Intent
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
@@ -61,6 +63,7 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 private data class DrawerItem(
     val route: String,
@@ -75,10 +78,75 @@ private const val PREFS = "student_form_defaults"
 fun SchoolManagerApp(repository: SchoolRepository) {
     val context = LocalContext.current
     val authPrefs = remember { context.getSharedPreferences("school_manager_auth", android.content.Context.MODE_PRIVATE) }
-    var activeRole by remember { mutableStateOf(if (authPrefs.getBoolean("remember", false)) authPrefs.getString("saved_role", null) else null) }
+    val savedRole = if (authPrefs.getBoolean("remember", false)) authPrefs.getString("saved_role", null) else null
+    // Never render a remembered teacher session until startup authorization has been checked
+    // or the device is confirmed offline (offline mode is explicitly unverified).
+    var activeRole by remember { mutableStateOf(if (savedRole == "Teacher") null else savedRole) }
+    var startupAuthChecked by remember { mutableStateOf(savedRole != "Teacher") }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
+
+    fun hasInternetConnection(): Boolean {
+        val manager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    LaunchedEffect(Unit) {
+        if (savedRole == "Teacher" && authPrefs.getBoolean("remember", false)) {
+            if (!hasInternetConnection()) {
+                // Allow the requested offline session, but do not mark it as authorized for sync.
+                authPrefs.edit().putBoolean("teacher_verified_online", false).apply()
+                activeRole = "Teacher"
+                startupAuthChecked = true
+            } else {
+                try {
+                    val user = FirebaseAuth.getInstance().currentUser
+                    if (user == null) throw SecurityException("Teacher session is no longer signed in.")
+                    user.reload().await()
+                    val profile = FirebaseFirestore.getInstance().collection("teacherAccounts")
+                        .document(user.uid).get(com.google.firebase.firestore.Source.SERVER).await()
+                    val valid = profile.exists() && profile.getString("role") == "teacher" &&
+                        profile.getString("schoolId") == "ams-manager-b1434" && profile.getBoolean("enabled") == true
+                    if (!valid) throw SecurityException("Teacher profile was deleted or disabled.")
+                    authPrefs.edit().putBoolean("teacher_verified_online", true).putBoolean("force_teacher_login", false).apply()
+                    activeRole = "Teacher"
+                } catch (e: com.google.firebase.auth.FirebaseAuthInvalidUserException) {
+                    FirebaseAuth.getInstance().signOut()
+                    authPrefs.edit().remove("saved_role").putBoolean("teacher_verified_online", false).putBoolean("force_teacher_login", false).apply()
+                    runCatching { AppDatabase.get(context).clearAllTables() }
+                    activeRole = null
+                } catch (e: SecurityException) {
+                    FirebaseAuth.getInstance().signOut()
+                    authPrefs.edit().remove("saved_role").putBoolean("teacher_verified_online", false).putBoolean("force_teacher_login", false).apply()
+                    runCatching { AppDatabase.get(context).clearAllTables() }
+                    activeRole = null
+                } catch (e: Exception) {
+                    // A failed network check is not proof the account is deleted; keep offline mode
+                    // but keep cloud sync disabled until a server authorization check succeeds.
+                    authPrefs.edit().putBoolean("teacher_verified_online", false).apply()
+                    activeRole = "Teacher"
+                } finally {
+                    startupAuthChecked = true
+                }
+            }
+        }
+    }
+
+    // A background sync can discover a deleted profile after connectivity returns. React to its
+    // revocation flag so the already-open UI returns to login without waiting for another launch.
+    LaunchedEffect(activeRole) {
+        while (activeRole == "Teacher") {
+            if (authPrefs.getBoolean("force_teacher_login", false)) {
+                activeRole = null
+                break
+            }
+            delay(1500)
+        }
+    }
 
     val items = remember {
         listOf(
@@ -279,6 +347,10 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             }
         }
     }
+    } else if (!startupAuthChecked) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
     } else {
         LoginScreen(
             authPrefs = authPrefs,
@@ -309,6 +381,7 @@ private fun LoginScreen(
         authPrefs.edit().putBoolean("remember", rememberMe).apply()
         if (rememberMe) authPrefs.edit().putString("saved_role", role).apply()
         else authPrefs.edit().remove("saved_role").apply()
+        if (role == "Teacher") authPrefs.edit().putBoolean("teacher_verified_online", true).putBoolean("force_teacher_login", false).apply()
         onRememberChanged(rememberMe); onLogin(role)
         // A fresh authenticated session can now perform any queued offline changes.
         AutoSyncScheduler.enqueue(context)
@@ -356,7 +429,7 @@ private fun LoginScreen(
                         val auth = FirebaseAuth.getInstance()
                         auth.signInWithEmailAndPassword(email, password).await()
                         val uid = auth.currentUser?.uid ?: throw IllegalStateException("Sign-in did not return a user")
-                        val profile = FirebaseFirestore.getInstance().collection("teacherAccounts").document(uid).get().await()
+                        val profile = FirebaseFirestore.getInstance().collection("teacherAccounts").document(uid).get(com.google.firebase.firestore.Source.SERVER).await()
                         if (!profile.exists() || profile.getString("role") != "teacher" || profile.getString("schoolId") != "ams-manager-b1434" || profile.getBoolean("enabled") != true) {
                             auth.signOut()
                             throw SecurityException("This account is not an enabled teacher account.")
@@ -1105,7 +1178,16 @@ private fun FirebaseSyncScreen() {
                     val report = syncer.sync()
                     status = "Sync completed successfully. Uploaded local records: ${report.studentsUploaded} students, ${report.attendanceUploaded} attendance entries, ${report.monthlyExamsUploaded} monthly exam records, and ${report.examMarksUploaded} exam marks. Cloud records were merged into this device."
                 } catch (e: Exception) {
-                    status = "Sync failed: ${e.localizedMessage ?: e.javaClass.simpleName}. Check internet, Firebase Authentication, and deployed Firestore rules, then retry."
+                    if (e is SecurityException && !auth.currentUser?.email.equals(FirebaseSchoolSync.ADMIN_EMAIL, ignoreCase = true)) {
+                        runCatching { AppDatabase.get(context).clearAllTables() }
+                        context.getSharedPreferences("school_manager_auth", android.content.Context.MODE_PRIVATE)
+                            .edit().remove("saved_role").putBoolean("remember", false)
+                            .putBoolean("teacher_verified_online", false).putBoolean("force_teacher_login", true).apply()
+                        auth.signOut()
+                        status = "Teacher access revoked. Local school data was cleared. Please sign in again."
+                    } else {
+                        status = "Sync failed: ${e.localizedMessage ?: e.javaClass.simpleName}. Check internet, Firebase Authentication, and deployed Firestore rules, then retry."
+                    }
                 } finally { busy = false }
             }
         }, modifier = Modifier.fillMaxWidth()) {

@@ -34,12 +34,34 @@ class FirebaseAutoSyncWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        // A queued job can run after logout. It is safe to stop; login/startup schedules again.
-        if (FirebaseAuth.getInstance().currentUser == null) return Result.success()
+        // A queued job can run after logout. If a remembered teacher has lost its Firebase
+        // session, revoke that local session and clear the local school cache before stopping.
+        if (FirebaseAuth.getInstance().currentUser == null) {
+            val prefs = applicationContext.getSharedPreferences("school_manager_auth", Context.MODE_PRIVATE)
+            if (prefs.getString("saved_role", null) == "Teacher") {
+                runCatching { AppDatabase.get(applicationContext).clearAllTables() }
+                prefs.edit().remove("saved_role").putBoolean("remember", false)
+                    .putBoolean("teacher_verified_online", false).putBoolean("force_teacher_login", true).apply()
+            }
+            return Result.success()
+        }
         return try {
             FirebaseSchoolSync(AppDatabase.get(applicationContext)).sync()
             Result.success()
         } catch (e: SecurityException) {
+            // A deleted/disabled teacher must not keep using a remembered session or local copy.
+            // Never clear school data for the administrator account.
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null && !user.email.equals(FirebaseSchoolSync.ADMIN_EMAIL, ignoreCase = true)) {
+                runCatching { AppDatabase.get(applicationContext).clearAllTables() }
+                applicationContext.getSharedPreferences("school_manager_auth", Context.MODE_PRIVATE)
+                    .edit().remove("saved_role")
+                    .putBoolean("remember", false)
+                    .putBoolean("teacher_verified_online", false)
+                    .putBoolean("force_teacher_login", true)
+                    .apply()
+                FirebaseAuth.getInstance().signOut()
+            }
             // Auth/rules errors need user action, not endless background retries.
             Result.failure()
         } catch (e: IllegalStateException) {

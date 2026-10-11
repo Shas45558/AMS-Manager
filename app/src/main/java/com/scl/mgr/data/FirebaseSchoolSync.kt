@@ -2,6 +2,7 @@ package com.ams.mgr.data
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 import kotlinx.coroutines.tasks.await
 
 /** Room <-> Firestore sync with durable student deletion tombstones. */
@@ -12,11 +13,15 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
     suspend fun sync(): SyncReport {
         val user = FirebaseAuth.getInstance().currentUser
             ?: throw IllegalStateException("Please sign in before syncing.")
-        user.reload().await()
+        try {
+            user.reload().await()
+        } catch (e: com.google.firebase.auth.FirebaseAuthInvalidUserException) {
+            throw SecurityException("This Firebase account no longer exists.", e)
+        }
         val email = user.email?.trim()?.lowercase()
         if (email != ADMIN_EMAIL) {
             // Spark-compatible role check: role records are writable only by the verified admin.
-            val profile = firestore.collection("teacherAccounts").document(user.uid).get().await()
+            val profile = firestore.collection("teacherAccounts").document(user.uid).get(Source.SERVER).await()
             if (!profile.exists() || profile.getString("role") != "teacher" || profile.getString("schoolId") != SCHOOL_ID || profile.getBoolean("enabled") != true) {
                 throw SecurityException("This account is not authorized to sync school records.")
             }

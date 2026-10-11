@@ -14,8 +14,8 @@ android {
         applicationId = "com.ams.mgr"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "1.43"
+        versionCode = 21
+        versionName = "1.44"
     }
 
     // Release is optimized to reduce the final APK size.
