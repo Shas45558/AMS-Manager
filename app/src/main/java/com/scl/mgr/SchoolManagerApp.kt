@@ -54,6 +54,7 @@ import com.ams.mgr.data.MonthlyExam
 import com.ams.mgr.data.AppDatabase
 import com.ams.mgr.data.ExamMark
 import com.ams.mgr.data.FirebaseSchoolSync
+import com.ams.mgr.data.AutoSyncScheduler
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -309,6 +310,8 @@ private fun LoginScreen(
         if (rememberMe) authPrefs.edit().putString("saved_role", role).apply()
         else authPrefs.edit().remove("saved_role").apply()
         onRememberChanged(rememberMe); onLogin(role)
+        // A fresh authenticated session can now perform any queued offline changes.
+        AutoSyncScheduler.enqueue(context)
     }
     val signInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         try {
@@ -450,6 +453,7 @@ private fun AuthorizationScreen() {
                                     "schoolId" to "ams-manager-b1434",
                                     "enabled" to true
                                 )).await()
+                                AutoSyncScheduler.enqueue(context)
                             } catch (e: Exception) {
                                 try { result.user?.delete()?.await() } catch (_: Exception) { }
                                 throw e
@@ -1090,8 +1094,8 @@ private fun FirebaseSyncScreen() {
     var status by remember { mutableStateOf("Signed in as: ${auth.currentUser?.email ?: auth.currentUser?.uid ?: "not signed in"}. Cloud sync has not run yet.") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Firebase Sync", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Manual Sync uploads and downloads students, attendance, Monthly Exam marks, and Exams & Results marks between this device and the AMS Manager Firebase cloud. Saving a mark stores it on this device first; tap Sync to send it to Firebase.")
-        Text("Student deletions are now queued and synchronized to Firebase, including related attendance and exam records. Sync requires internet. If the same mark is edited on multiple devices before syncing, the last upload can overwrite it; avoid editing the same record on two devices at once.")
+        Text("Automatic Sync is enabled. Student, attendance, Monthly Exam, and Exams & Results changes are saved locally first, then queued for Firebase sync. WorkManager waits for internet and retries temporary failures, including when connectivity returns. Opening the app and signing in also queues a sync. You can still tap Sync to run it immediately.")
+        Text("Student deletions use durable cloud tombstones, so another device's old local copy should not recreate a deleted student; related attendance and exam records are removed too. Teacher account profiles are stored directly in Firestore when created, enabled/disabled, or deleted, so those admin changes are already online. Avoid editing the same mark on two devices before they sync because the last upload may overwrite it.")
         Text(status, style = MaterialTheme.typography.bodyMedium)
         Button(enabled = !busy && auth.currentUser != null, onClick = {
             busy = true

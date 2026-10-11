@@ -13,10 +13,15 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
         if (db.studentDao().findDuplicate(student.className, student.section, student.studentId) != null) {
             throw IllegalArgumentException("A student with the same class, section and roll already exists.")
         }
-        return db.studentDao().insert(student)
+        val id = db.studentDao().insert(student)
+        AutoSyncScheduler.enqueue(context)
+        return id
     }
 
-    suspend fun updateStudent(student: Student) = db.studentDao().update(student)
+    suspend fun updateStudent(student: Student) {
+        db.studentDao().update(student)
+        AutoSyncScheduler.enqueue(context)
+    }
 
     suspend fun deleteStudent(student: Student) {
         // Keep a tombstone so the next cloud sync cannot resurrect this student.
@@ -25,6 +30,7 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
         db.monthlyExamDao().deleteForStudent(student.id)
         db.examMarkDao().deleteForStudent(student.id)
         db.studentDao().delete(student)
+        AutoSyncScheduler.enqueue(context)
     }
 
     suspend fun getStudent(id: Long): Student? = db.studentDao().getById(id)
@@ -39,6 +45,7 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
 
     suspend fun markAttendance(studentId: Long, date: String, present: Boolean) {
         db.attendanceDao().upsert(Attendance(studentId = studentId, date = date, present = present))
+        AutoSyncScheduler.enqueue(context)
     }
 
     suspend fun presentCount(date: String): Int = db.attendanceDao().presentCount(date)
@@ -50,6 +57,7 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
 
     suspend fun saveMonthlyExams(exams: List<MonthlyExam>) {
         db.monthlyExamDao().upsertAll(exams)
+        AutoSyncScheduler.enqueue(context)
     }
 
     suspend fun monthlyExamsOnce(yearMonth: String): List<MonthlyExam> = db.monthlyExamDao().getForMonth(yearMonth)
@@ -58,6 +66,7 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
 
     suspend fun saveExamMarks(marks: List<ExamMark>) {
         db.examMarkDao().upsertAll(marks)
+        AutoSyncScheduler.enqueue(context)
     }
 
     suspend fun studentAbsentCountBetween(studentId: Long, startDate: String, endDate: String): Int = db.attendanceDao().studentAbsentCountBetween(studentId, startDate, endDate)
