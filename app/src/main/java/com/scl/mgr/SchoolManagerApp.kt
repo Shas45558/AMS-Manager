@@ -610,16 +610,60 @@ private fun AuthorizationScreen() {
                     }
                     val assignment = assignmentEdits[teacher.uid] ?: (teacher.assignedClass to teacher.assignedSection)
                     Text("Class and Section Assignment", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(
-                        value = assignment.first,
-                        onValueChange = { value -> assignmentEdits = assignmentEdits + (teacher.uid to (value to assignment.second)) },
-                        label = { Text("Assigned class (e.g. 6)") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = assignment.second,
-                        onValueChange = { value -> assignmentEdits = assignmentEdits + (teacher.uid to (assignment.first to value)) },
-                        label = { Text("Assigned section (e.g. A)") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                    )
+                    var classMenuExpanded by remember(teacher.uid) { mutableStateOf(false) }
+                    var sectionMenuExpanded by remember(teacher.uid) { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = classMenuExpanded,
+                        onExpandedChange = { classMenuExpanded = !classMenuExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = assignment.first.takeIf { it.isNotBlank() }?.let { "Class $it" } ?: "Select class",
+                            onValueChange = {}, readOnly = true,
+                            label = { Text("Assigned class") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = classMenuExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = classMenuExpanded,
+                            onDismissRequest = { classMenuExpanded = false }
+                        ) {
+                            (1..10).map { it.toString() }.forEach { classOption ->
+                                DropdownMenuItem(
+                                    text = { Text("Class $classOption") },
+                                    onClick = {
+                                        assignmentEdits = assignmentEdits + (teacher.uid to (classOption to assignment.second))
+                                        classMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    ExposedDropdownMenuBox(
+                        expanded = sectionMenuExpanded,
+                        onExpandedChange = { sectionMenuExpanded = !sectionMenuExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = assignment.second.takeIf { it.isNotBlank() }?.let { "Section $it" } ?: "Select section",
+                            onValueChange = {}, readOnly = true,
+                            label = { Text("Assigned section") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sectionMenuExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = sectionMenuExpanded,
+                            onDismissRequest = { sectionMenuExpanded = false }
+                        ) {
+                            listOf("A", "B", "C", "D", "E").forEach { sectionOption ->
+                                DropdownMenuItem(
+                                    text = { Text("Section $sectionOption") },
+                                    onClick = {
+                                        assignmentEdits = assignmentEdits + (teacher.uid to (assignment.first to sectionOption))
+                                        sectionMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                     OutlinedButton(enabled = !busy && assignment.first.isNotBlank() && assignment.second.isNotBlank(), onClick = {
                         val classValue = assignment.first.trim()
                         val sectionValue = assignment.second.trim()
