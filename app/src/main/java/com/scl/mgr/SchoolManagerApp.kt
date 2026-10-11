@@ -476,6 +476,7 @@ private fun AuthorizationScreen() {
     var teachers by remember { mutableStateOf<List<TeacherAdminRow>>(emptyList()) }
     var loadingTeachers by remember { mutableStateOf(false) }
     var displayNameEdits by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var assignmentEdits by remember { mutableStateOf<Map<String, Pair<String, String>>>(emptyMap()) }
 
     fun loadTeachers() {
         val admin = FirebaseAuth.getInstance().currentUser
@@ -492,6 +493,7 @@ private fun AuthorizationScreen() {
                     TeacherAdminRow(doc.id, id, doc.getString("displayName") ?: id, doc.getBoolean("enabled") == true, doc.getString("assignedClass") ?: "", doc.getString("assignedSection") ?: "")
                 }.sortedBy { it.userId }
                 displayNameEdits = teachers.associate { it.uid to it.displayName }
+                assignmentEdits = teachers.associate { it.uid to (it.assignedClass to it.assignedSection) }
                 message = if (teachers.isEmpty()) "No teacher accounts found yet." else "Loaded ${teachers.size} teacher account(s)."
             } catch (e: Exception) {
                 message = "Could not load teacher list: ${e.localizedMessage ?: e.javaClass.simpleName}"
@@ -605,6 +607,38 @@ private fun AuthorizationScreen() {
                                 finally { busy = false }
                             }
                         }, modifier = Modifier.weight(1f)) { Text(if (teacher.enabled) "Disable" else "Enable") }
+                    }
+                    val assignment = assignmentEdits[teacher.uid] ?: (teacher.assignedClass to teacher.assignedSection)
+                    Text("Class and Section Assignment", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = assignment.first,
+                        onValueChange = { value -> assignmentEdits = assignmentEdits + (teacher.uid to (value to assignment.second)) },
+                        label = { Text("Assigned class (e.g. 6)") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = assignment.second,
+                        onValueChange = { value -> assignmentEdits = assignmentEdits + (teacher.uid to (assignment.first to value)) },
+                        label = { Text("Assigned section (e.g. A)") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedButton(enabled = !busy && assignment.first.isNotBlank() && assignment.second.isNotBlank(), onClick = {
+                        val classValue = assignment.first.trim()
+                        val sectionValue = assignment.second.trim()
+                        scope.launch {
+                            busy = true
+                            try {
+                                firestore.collection("teacherAccounts").document(teacher.uid).update(
+                                    mapOf("assignedClass" to classValue, "assignedSection" to sectionValue)
+                                ).await()
+                                teachers = teachers.map { if (it.uid == teacher.uid) it.copy(assignedClass = classValue, assignedSection = sectionValue) else it }
+                                assignmentEdits = assignmentEdits + (teacher.uid to (classValue to sectionValue))
+                                message = "Assigned ${teacher.userId} to Class $classValue, Section $sectionValue."
+                            } catch (e: Exception) {
+                                message = "Assignment save failed: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                            } finally { busy = false }
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                        Spacer(Modifier.width(6.dp)); Text("Save Assignment")
                     }
                     OutlinedButton(enabled = !busy, onClick = { confirmDeleteProfile = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Delete, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Delete teacher profile")
