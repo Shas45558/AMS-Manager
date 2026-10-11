@@ -466,6 +466,7 @@ private data class TeacherAdminRow(
     val assignedSection: String
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AuthorizationScreen() {
     val context = LocalContext.current
