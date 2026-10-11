@@ -25,7 +25,7 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
 
     suspend fun deleteStudent(student: Student) {
         // Keep a tombstone so the next cloud sync cannot resurrect this student.
-        db.pendingStudentDeletionDao().add(PendingStudentDeletion(student.id))
+        db.pendingStudentDeletionDao().add(PendingStudentDeletion(student.id, className = student.className, section = student.section))
         db.attendanceDao().deleteForStudent(student.id)
         db.monthlyExamDao().deleteForStudent(student.id)
         db.examMarkDao().deleteForStudent(student.id)

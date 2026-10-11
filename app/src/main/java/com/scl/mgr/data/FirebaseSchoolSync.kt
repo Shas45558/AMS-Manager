@@ -19,45 +19,54 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             throw SecurityException("This Firebase account no longer exists.", e)
         }
         val email = user.email?.trim()?.lowercase()
-        if (email != ADMIN_EMAIL) {
-            // Spark-compatible role check: role records are writable only by the verified admin.
+        val isAdmin = email == ADMIN_EMAIL
+        var assignedClass = ""
+        var assignedSection = ""
+        if (!isAdmin) {
+            // Authorization and assignment are always read from the server, never cache.
             val profile = firestore.collection("teacherAccounts").document(user.uid).get(Source.SERVER).await()
             if (!profile.exists() || profile.getString("role") != "teacher" || profile.getString("schoolId") != SCHOOL_ID || profile.getBoolean("enabled") != true) {
                 throw SecurityException("This account is not authorized to sync school records.")
             }
+            assignedClass = profile.getString("assignedClass") ?: ""
+            assignedSection = profile.getString("assignedSection") ?: ""
+            if (assignedClass.isBlank() || assignedSection.isBlank()) throw SecurityException("The administrator has not assigned a class and section to this teacher.")
         } else if (user.isEmailVerified != true) {
             throw SecurityException("Verify the administrator email before syncing.")
         }
 
-        // Apply cloud deletion markers before uploading local rows, so stale local copies
-        // from another device cannot recreate a deleted student. Local pending markers
-        // are uploaded first and remain until all deletion work succeeds.
+        // Admin handles global tombstones. Teachers operate only on their assigned class/section.
         val tombstoneCollection = school.collection("deletedStudents")
-        val remoteDeletedIds = tombstoneCollection.get().await().documents.mapNotNull {
+        val remoteDeletedIds = if (isAdmin) tombstoneCollection.get().await().documents.mapNotNull {
             (it.get("studentId") as? Number)?.toLong() ?: it.id.toLongOrNull()
-        }.toSet()
-        val localPending = db.pendingStudentDeletionDao().getAllOnce().map { it.studentId }.toSet()
-        val deletedIds = remoteDeletedIds + localPending
+        }.toSet() else emptySet()
+        val pendingRows = db.pendingStudentDeletionDao().getAllOnce()
+        val eligiblePending = if (isAdmin) pendingRows else pendingRows.filter { it.className == assignedClass && it.section == assignedSection }
+        val localPending = eligiblePending.map { it.studentId }.toSet()
+        val deletedIds = if (isAdmin) remoteDeletedIds + localPending else localPending
         for (studentId in deletedIds) {
             if (studentId in localPending) {
-                tombstoneCollection.document(studentId.toString()).set(mapOf(
-                    "studentId" to studentId, "deletedAt" to System.currentTimeMillis()
-                )).await()
+                val pending = eligiblePending.firstOrNull { it.studentId == studentId }
+                val marker = mutableMapOf<String, Any>("studentId" to studentId, "deletedAt" to System.currentTimeMillis())
+                if (pending != null) { marker["className"] = pending.className; marker["section"] = pending.section }
+                tombstoneCollection.document(studentId.toString()).set(marker).await()
             }
-            school.collection("students").document(studentId.toString()).delete().await()
             school.collection("attendance").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
             school.collection("monthlyExams").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
             school.collection("examMarks").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+            school.collection("students").document(studentId.toString()).delete().await()
             db.attendanceDao().deleteForStudent(studentId)
             db.monthlyExamDao().deleteForStudent(studentId)
             db.examMarkDao().deleteForStudent(studentId)
             db.studentDao().deleteById(studentId)
         }
 
-        val students = db.studentDao().getAllOnce()
-        val attendance = db.attendanceDao().getAllOnce()
-        val monthly = db.monthlyExamDao().getAllOnce()
-        val marks = db.examMarkDao().getAllOnce()
+        val allLocalStudents = db.studentDao().getAllOnce()
+        val students = if (isAdmin) allLocalStudents else allLocalStudents.filter { it.className == assignedClass && it.section == assignedSection }
+        val assignedIds = students.map { it.id }.toSet()
+        val attendance = db.attendanceDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
+        val monthly = db.monthlyExamDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
+        val marks = db.examMarkDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
 
         // Upload local records; deterministic document IDs make repeated syncs idempotent.
         students.forEach { s -> school.collection("students").document(s.id.toString()).set(mapOf(
@@ -81,24 +90,29 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         )).await() }
 
         // Merge remote records into Room. Missing cloud records never delete local records.
-        school.collection("students").get().await().documents.forEach { d ->
+        val remoteStudentsQuery = if (isAdmin) school.collection("students").get() else school.collection("students")
+            .whereEqualTo("className", assignedClass).whereEqualTo("section", assignedSection).get()
+        remoteStudentsQuery.await().documents.forEach { d ->
             val m = d.data ?: return@forEach
             val id = m.long("id") ?: d.id.toLongOrNull() ?: return@forEach
             db.studentDao().upsert(Student(id, m.str("studentName"), m.str("studentId"), m.str("className"), m.str("section"), m.str("gender"), m.str("religion"), m.str("fatherName"), m.str("address"), m.str("mobileNumber")))
         }
-        school.collection("attendance").get().await().documents.forEach { d ->
+        val remoteAttendance = if (isAdmin) school.collection("attendance").get().await().documents else queryByStudentIds("attendance", assignedIds)
+        remoteAttendance.forEach { d ->
             val m = d.data ?: return@forEach
             val studentId = m.long("studentId") ?: return@forEach
             val date = m.str("date")
             db.attendanceDao().upsert(Attendance(m.long("id") ?: 0L, studentId, date, m["present"] as? Boolean ?: false))
         }
-        val monthlyRemote = school.collection("monthlyExams").get().await().documents.mapNotNull { d ->
+        val remoteMonthly = if (isAdmin) school.collection("monthlyExams").get().await().documents else queryByStudentIds("monthlyExams", assignedIds)
+        val monthlyRemote = remoteMonthly.mapNotNull { d ->
             val m = d.data ?: return@mapNotNull null
             val id = m.long("studentId") ?: return@mapNotNull null
             MonthlyExam(id, m.str("yearMonth"), m.int("bangla"), m.int("english"), m.int("math"), m.int("socialScience"), m.int("science"), m.int("religion"), m.int("physics"), m.int("chemistry"), m.int("biology"), m.int("hMOrAgri"))
         }
         db.monthlyExamDao().upsertAll(monthlyRemote)
-        val marksRemote = school.collection("examMarks").get().await().documents.mapNotNull { d ->
+        val remoteMarks = if (isAdmin) school.collection("examMarks").get().await().documents else queryByStudentIds("examMarks", assignedIds)
+        val marksRemote = remoteMarks.mapNotNull { d ->
             val m = d.data ?: return@mapNotNull null
             val id = m.long("studentId") ?: return@mapNotNull null
             ExamMark(id, m.str("examType"), m.str("subjectKey"), m.int("cq"), m.int("mcq"))
@@ -106,6 +120,16 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         db.examMarkDao().upsertAll(marksRemote)
         localPending.forEach { db.pendingStudentDeletionDao().remove(it) }
         return SyncReport(students.size, attendance.size, monthly.size, marks.size)
+    }
+
+    private suspend fun queryByStudentIds(collection: String, studentIds: Set<Long>): List<com.google.firebase.firestore.DocumentSnapshot> {
+        if (studentIds.isEmpty()) return emptyList()
+        val result = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
+        // Firestore whereIn supports up to 30 values per query.
+        studentIds.toList().chunked(30).forEach { chunk ->
+            result += school.collection(collection).whereIn("studentId", chunk).get().await().documents
+        }
+        return result
     }
 
     private fun Map<String, Any?>.str(key: String) = this[key] as? String ?: ""

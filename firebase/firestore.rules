@@ -7,33 +7,60 @@ service cloud.firestore {
         && request.auth.token.email == 'shas45558@gmail.com'
         && request.auth.token.email_verified == true;
     }
+    function teacherPath() { return /databases/$(database)/documents/teacherAccounts/$(request.auth.uid); }
     function isEnabledTeacher() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid))
-        && get(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid)).data.role == 'teacher'
-        && get(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid)).data.schoolId == 'ams-manager-b1434'
-        && get(/databases/$(database)/documents/teacherAccounts/$(request.auth.uid)).data.enabled == true;
+      return signedIn() && exists(teacherPath())
+        && get(teacherPath()).data.role == 'teacher'
+        && get(teacherPath()).data.schoolId == 'ams-manager-b1434'
+        && get(teacherPath()).data.enabled == true
+        && get(teacherPath()).data.assignedClass is string
+        && get(teacherPath()).data.assignedSection is string
+        && get(teacherPath()).data.assignedClass != ''
+        && get(teacherPath()).data.assignedSection != '';
     }
-    function isSchoolUser() { return isAdmin() || isEnabledTeacher(); }
-
-    // Teacher profiles can be read by their owner and the admin, but only the
-    // verified, allowlisted administrator can create/update/delete profiles.
+    function assigned(className, section) {
+      return isEnabledTeacher()
+        && get(teacherPath()).data.assignedClass == className
+        && get(teacherPath()).data.assignedSection == section;
+    }
+    function studentInAssignment(studentId) {
+      return isEnabledTeacher()
+        && exists(/databases/$(database)/documents/schools/ams-manager-b1434/students/$(studentId))
+        && assigned(
+          get(/databases/$(database)/documents/schools/ams-manager-b1434/students/$(studentId)).data.className,
+          get(/databases/$(database)/documents/schools/ams-manager-b1434/students/$(studentId)).data.section
+        );
+    }
     match /teacherAccounts/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow create, update, delete: if isAdmin();
     }
-
-    // Legacy credential hashes are never accessible to clients.
-    match /teacherCredentials/{document=**} {
-      allow read, write: if false;
+    match /teacherCredentials/{document=**} { allow read, write: if false; }
+    match /schools/{schoolId}/students/{studentId} {
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section)));
     }
-
+    match /schools/{schoolId}/attendance/{recordId} {
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(resource.data.studentId));
+      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(request.resource.data.studentId));
+    }
+    match /schools/{schoolId}/monthlyExams/{recordId} {
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(resource.data.studentId));
+      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(request.resource.data.studentId));
+    }
+    match /schools/{schoolId}/examMarks/{recordId} {
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(resource.data.studentId));
+      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(request.resource.data.studentId));
+    }
+    match /schools/{schoolId}/deletedStudents/{studentId} {
+      allow read: if schoolId == 'ams-manager-b1434' && isAdmin();
+      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
+      allow delete: if schoolId == 'ams-manager-b1434' && isAdmin();
+    }
     match /schools/{schoolId}/{document=**} {
-      allow read, write: if isSchoolUser() && schoolId == 'ams-manager-b1434';
+      allow read, write: if schoolId == 'ams-manager-b1434' && isAdmin();
     }
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /{document=**} { allow read, write: if false; }
   }
 }

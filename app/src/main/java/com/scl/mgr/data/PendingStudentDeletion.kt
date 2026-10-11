@@ -5,4 +5,9 @@ import androidx.room.PrimaryKey
 
 /** Local tombstone retained until a successful sync propagates the deletion to Firestore. */
 @Entity(tableName = "pending_student_deletions")
-data class PendingStudentDeletion(@PrimaryKey val studentId: Long, val deletedAt: Long = System.currentTimeMillis())
+data class PendingStudentDeletion(
+    @PrimaryKey val studentId: Long,
+    val deletedAt: Long = System.currentTimeMillis(),
+    val className: String = "",
+    val section: String = ""
+)
