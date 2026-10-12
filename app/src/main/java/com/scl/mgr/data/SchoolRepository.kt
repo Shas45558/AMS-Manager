@@ -14,17 +14,20 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
             throw IllegalArgumentException("A student with the same class, section and roll already exists.")
         }
         val id = db.studentDao().insert(student)
+        db.pendingStudentUpsertDao().add(PendingStudentUpsert(id))
         AutoSyncScheduler.enqueue(context)
         return id
     }
 
     suspend fun updateStudent(student: Student) {
         db.studentDao().update(student)
+        db.pendingStudentUpsertDao().add(PendingStudentUpsert(student.id))
         AutoSyncScheduler.enqueue(context)
     }
 
     suspend fun deleteStudent(student: Student) {
         // Queue the deletion locally until sync removes the cloud record and related data.
+        db.pendingStudentUpsertDao().remove(student.id)
         db.pendingStudentDeletionDao().add(PendingStudentDeletion(student.id, className = student.className, section = student.section))
         db.attendanceDao().deleteForStudent(student.id)
         db.monthlyExamDao().deleteForStudent(student.id)

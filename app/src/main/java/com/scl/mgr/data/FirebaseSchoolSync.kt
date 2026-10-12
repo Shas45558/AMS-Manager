@@ -35,8 +35,8 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             throw SecurityException("Verify the administrator email before syncing.")
         }
 
-        // Process local deletion requests by deleting cloud records directly. No
-        // Firestore deletedStudents collection is created or queried.
+        // First apply explicit local deletions. Deletions are queued by the repository
+        // and are sent to Firestore before the roster is downloaded.
         val pendingRows = db.pendingStudentDeletionDao().getAllOnce()
         val eligiblePending = if (isAdmin) pendingRows else pendingRows.filter { it.className == assignedClass && it.section == assignedSection }
         val localPending = eligiblePending.map { it.studentId }.toSet()
@@ -45,46 +45,54 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             school.collection("monthlyExams").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
             school.collection("examMarks").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
             school.collection("students").document(studentId.toString()).delete().await()
+            db.pendingStudentUpsertDao().remove(studentId)
             db.attendanceDao().deleteForStudent(studentId)
             db.monthlyExamDao().deleteForStudent(studentId)
             db.examMarkDao().deleteForStudent(studentId)
             db.studentDao().deleteById(studentId)
         }
 
-        val allLocalStudents = db.studentDao().getAllOnce()
-        // The admin owns the roster and is the only account that uploads student documents.
-        // This prevents an old teacher device from recreating a student deleted by the admin.
-        if (isAdmin) {
-            allLocalStudents.forEach { s -> school.collection("students").document(s.id.toString()).set(mapOf(
-                "id" to s.id, "studentName" to s.studentName, "studentId" to s.studentId,
-                "className" to s.className, "section" to s.section, "gender" to s.gender,
-                "religion" to s.religion, "fatherName" to s.fatherName, "address" to s.address,
-                "mobileNumber" to s.mobileNumber
-            )).await() }
+        // Upload only explicit pending additions/edits. Never bulk-upload every local
+        // row: an old copy on another device must not resurrect a cloud-deleted student.
+        val pendingUpserts = db.pendingStudentUpsertDao().getAllOnce()
+        for (pending in pendingUpserts) {
+            if (pending.studentId in localPending) continue
+            val student = db.studentDao().getById(pending.studentId)
+            if (student == null) {
+                db.pendingStudentUpsertDao().remove(pending.studentId)
+                continue
+            }
+            if (!isAdmin && (student.className != assignedClass || student.section != assignedSection)) continue
+            school.collection("students").document(student.id.toString()).set(mapOf(
+                "id" to student.id, "studentName" to student.studentName, "studentId" to student.studentId,
+                "className" to student.className, "section" to student.section, "gender" to student.gender,
+                "religion" to student.religion, "fatherName" to student.fatherName, "address" to student.address,
+                "mobileNumber" to student.mobileNumber
+            )).await()
+            db.pendingStudentUpsertDao().remove(student.id)
         }
 
-        // Pull the cloud roster before teacher records are uploaded. For teachers, the cloud
-        // roster is authoritative for their assigned class/section: remove stale local students
-        // that no longer exist remotely, then merge the current cloud roster into Room.
-        val remoteStudentsQuery = if (isAdmin) school.collection("students").get() else school.collection("students")
-            .whereEqualTo("className", assignedClass).whereEqualTo("section", assignedSection).get()
-        val remoteStudentDocs = remoteStudentsQuery.await().documents
-        if (!isAdmin) {
-            val remoteIds = remoteStudentDocs.mapNotNull { d -> (d.get("id") as? Number)?.toLong() ?: d.id.toLongOrNull() }.toSet()
-            allLocalStudents.filter { it.className == assignedClass && it.section == assignedSection && it.id !in remoteIds }
-                .forEach { stale ->
-                    db.attendanceDao().deleteForStudent(stale.id)
-                    db.monthlyExamDao().deleteForStudent(stale.id)
-                    db.examMarkDao().deleteForStudent(stale.id)
-                    db.studentDao().deleteById(stale.id)
-                }
+        // The server roster is fetched after queued changes have been applied. It is
+        // authoritative for all records this account is allowed to see.
+        val remoteStudentDocs = (if (isAdmin) school.collection("students").get()
+            else school.collection("students").whereEqualTo("className", assignedClass)
+                .whereEqualTo("section", assignedSection).get()).await().documents
+        val remoteIds = remoteStudentDocs.mapNotNull { d -> (d.get("id") as? Number)?.toLong() ?: d.id.toLongOrNull() }.toSet()
+        val localStudentsBeforeMerge = db.studentDao().getAllOnce()
+        val pendingIds = db.pendingStudentUpsertDao().getAllOnce().map { it.studentId }.toSet()
+        val eligibleLocal = if (isAdmin) localStudentsBeforeMerge else localStudentsBeforeMerge.filter { it.className == assignedClass && it.section == assignedSection }
+        eligibleLocal.filter { it.id !in remoteIds && it.id !in pendingIds && it.id !in localPending }.forEach { stale ->
+            db.attendanceDao().deleteForStudent(stale.id)
+            db.monthlyExamDao().deleteForStudent(stale.id)
+            db.examMarkDao().deleteForStudent(stale.id)
+            db.studentDao().deleteById(stale.id)
         }
         remoteStudentDocs.forEach { d ->
             val m = d.data ?: return@forEach
             val id = m.long("id") ?: d.id.toLongOrNull() ?: return@forEach
             db.studentDao().upsert(Student(id, m.str("studentName"), m.str("studentId"), m.str("className"), m.str("section"), m.str("gender"), m.str("religion"), m.str("fatherName"), m.str("address"), m.str("mobileNumber")))
         }
-        val students = if (isAdmin) allLocalStudents.filter { it.id !in localPending } else db.studentDao().getAllOnce().filter { it.className == assignedClass && it.section == assignedSection }
+        val students = if (isAdmin) db.studentDao().getAllOnce() else db.studentDao().getAllOnce().filter { it.className == assignedClass && it.section == assignedSection }
         val assignedIds = students.map { it.id }.toSet()
         val attendance = db.attendanceDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
         val monthly = db.monthlyExamDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
