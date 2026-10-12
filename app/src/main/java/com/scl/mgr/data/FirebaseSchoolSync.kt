@@ -37,24 +37,35 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
 
         // Admin handles global tombstones. Teachers operate only on their assigned class/section.
         val tombstoneCollection = school.collection("deletedStudents")
-        val remoteDeletedIds = if (isAdmin) tombstoneCollection.get().await().documents.mapNotNull {
-            (it.get("studentId") as? Number)?.toLong() ?: it.id.toLongOrNull()
-        }.toSet() else emptySet()
+        // Every device must read cloud tombstones. Otherwise a teacher's stale Room copy
+        // survives an admin deletion and can be uploaded again during the teacher sync.
+        val remoteTombstones = tombstoneCollection.get().await().documents
+        val remoteDeletedIds = remoteTombstones.mapNotNull { d ->
+            val className = d.getString("className")
+            val section = d.getString("section")
+            val belongsToAssignedClass = isAdmin || (className == assignedClass && section == assignedSection)
+            if (!belongsToAssignedClass) null else (d.get("studentId") as? Number)?.toLong() ?: d.id.toLongOrNull()
+        }.toSet()
         val pendingRows = db.pendingStudentDeletionDao().getAllOnce()
         val eligiblePending = if (isAdmin) pendingRows else pendingRows.filter { it.className == assignedClass && it.section == assignedSection }
         val localPending = eligiblePending.map { it.studentId }.toSet()
-        val deletedIds = if (isAdmin) remoteDeletedIds + localPending else localPending
+        val deletedIds = remoteDeletedIds + localPending
         for (studentId in deletedIds) {
-            if (studentId in localPending) {
-                val pending = eligiblePending.firstOrNull { it.studentId == studentId }
+            val pending = eligiblePending.firstOrNull { it.studentId == studentId }
+            if (pending != null) {
                 val marker = mutableMapOf<String, Any>("studentId" to studentId, "deletedAt" to System.currentTimeMillis())
-                if (pending != null) { marker["className"] = pending.className; marker["section"] = pending.section }
+                if (pending.className.isNotBlank()) marker["className"] = pending.className
+                if (pending.section.isNotBlank()) marker["section"] = pending.section
                 tombstoneCollection.document(studentId.toString()).set(marker).await()
             }
-            school.collection("attendance").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
-            school.collection("monthlyExams").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
-            school.collection("examMarks").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
-            school.collection("students").document(studentId.toString()).delete().await()
+            // Only the administrator performs global cloud cleanup for tombstones it sees.
+            // Teachers only clean their local records for admin-originated deletions.
+            if (isAdmin || studentId in localPending) {
+                school.collection("attendance").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+                school.collection("monthlyExams").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+                school.collection("examMarks").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+                school.collection("students").document(studentId.toString()).delete().await()
+            }
             db.attendanceDao().deleteForStudent(studentId)
             db.monthlyExamDao().deleteForStudent(studentId)
             db.examMarkDao().deleteForStudent(studentId)
