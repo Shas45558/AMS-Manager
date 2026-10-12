@@ -477,6 +477,7 @@ private data class TeacherAdminRow(
 )
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AuthorizationScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
