@@ -442,6 +442,16 @@ private fun LoginScreen(
                             auth.signOut()
                             throw SecurityException("This account is not an enabled teacher account.")
                         }
+                        // Always refresh the assignment from the server at login. Without this,
+                        // a teacher could keep blank/stale SharedPreferences after an admin assigns a class.
+                        val assignedClass = profile.getString("assignedClass")?.trim().orEmpty()
+                        val assignedSection = profile.getString("assignedSection")?.trim().orEmpty()
+                        authPrefs.edit()
+                            .putString("assigned_class", assignedClass)
+                            .putString("assigned_section", assignedSection)
+                            .putBoolean("teacher_verified_online", true)
+                            .putBoolean("force_teacher_login", false)
+                            .apply()
                         finishLogin("Teacher")
                     } catch (e: Exception) { error = "Teacher login failed: ${e.message ?: "Check credentials and internet."}" }
                     finally { busy = false }
@@ -466,7 +476,6 @@ private data class TeacherAdminRow(
     val assignedSection: String
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AuthorizationScreen() {
     val context = LocalContext.current
