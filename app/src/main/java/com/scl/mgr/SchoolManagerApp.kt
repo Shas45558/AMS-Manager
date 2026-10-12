@@ -154,6 +154,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
         listOf(
             DrawerItem("dashboard", "Dashboard", Icons.Default.Home),
             DrawerItem("students", "Students", Icons.Default.School),
+            DrawerItem("promotion", "Student Promotion", Icons.Default.Upgrade),
             DrawerItem("teachers", "Teachers", Icons.Default.Person, true),
             DrawerItem("classes", "Classes", Icons.Default.Class, true),
             DrawerItem("subjects", "Subjects", Icons.Default.MenuBook, true),
@@ -289,6 +290,11 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         onAdd = { navController.navigate("student/add") },
                         onOpen = { id -> navController.navigate("student/$id") }
                     )
+                }
+            }
+            composable("promotion") {
+                AppScaffold("Student Promotion", drawerState, scope) {
+                    StudentPromotionScreen(repository)
                 }
             }
             composable("attendance") {
@@ -793,6 +799,154 @@ private fun AttendanceCountCard(title: String, count: Int, icon: androidx.compos
 }
 
 @Composable
+private fun StudentPromotionScreen(repository: SchoolRepository) {
+    val allStudents by repository.students("").collectAsState(initial = emptyList())
+    val context = LocalContext.current
+    val currentYear = remember { LocalDate.now().year }
+    val classOptions = remember(allStudents) { allStudents.map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 }) }
+    var sourceClass by rememberSaveable { mutableStateOf("") }
+    var sourceSection by rememberSaveable { mutableStateOf("All") }
+    var selectedIds by remember { mutableStateOf(setOf<Long>()) }
+    var rollEdits by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var outcomes by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var showConfirm by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(classOptions) { if (sourceClass.isBlank() && classOptions.isNotEmpty()) sourceClass = classOptions.first() }
+    val sectionOptions = remember(allStudents, sourceClass) { listOf("All") + allStudents.filter { it.className == sourceClass }.map { it.section }.distinct().sorted() }
+    LaunchedEffect(sectionOptions) { if (sourceSection !in sectionOptions) sourceSection = "All" }
+    val visibleStudents = remember(allStudents, sourceClass, sourceSection) {
+        allStudents.filter { it.className == sourceClass && (sourceSection == "All" || it.section == sourceSection) }
+    }
+    val targetClass = (sourceClass.toIntOrNull()?.plus(1))?.toString() ?: sourceClass
+    val targetYear = (currentYear + 1).toString()
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Promote students safely", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text("Student IDs and academic history stay unchanged. Choose outcomes and edit roll numbers before confirming.", style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(Modifier.weight(1f)) { DropdownField("Current class", sourceClass, classOptions.ifEmpty { listOf("6") }) { sourceClass = it; selectedIds = emptySet() } }
+            Box(Modifier.weight(1f)) { DropdownField("Section", sourceSection, sectionOptions) { sourceSection = it; selectedIds = emptySet() } }
+        }
+        Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Target class: $targetClass", fontWeight = FontWeight.SemiBold)
+                Text("Next academic year: $targetYear")
+                Text("Section is kept unchanged for each student.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${selectedIds.size} selected", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = {
+                if (selectedIds.size == visibleStudents.size) selectedIds = emptySet()
+                else {
+                    selectedIds = visibleStudents.map { it.id }.toSet()
+                    visibleStudents.forEach { st ->
+                        if (rollEdits[st.id] == null) rollEdits = rollEdits + (st.id to st.studentId)
+                        if (outcomes[st.id] == null) outcomes = outcomes + (st.id to "Promote")
+                    }
+                }
+            }) { Text(if (selectedIds.size == visibleStudents.size && visibleStudents.isNotEmpty()) "Clear selection" else "Select all") }
+        }
+        HorizontalDivider()
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(visibleStudents, key = { it.id }) { student ->
+                val selected = student.id in selectedIds
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = selected, onCheckedChange = { checked ->
+                                selectedIds = if (checked) selectedIds + student.id else selectedIds - student.id
+                                if (checked) {
+                                    rollEdits = rollEdits + (student.id to (rollEdits[student.id] ?: student.studentId))
+                                    outcomes = outcomes + (student.id to (outcomes[student.id] ?: "Promote"))
+                                }
+                            })
+                            Column(Modifier.weight(1f)) {
+                                Text(student.studentName, fontWeight = FontWeight.SemiBold)
+                                Text("Class ${student.className}-${student.section} • Roll ${student.studentId}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        if (selected) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.weight(1f)) {
+                                    DropdownField("Outcome", outcomes[student.id] ?: "Promote", listOf("Promote", "Repeat", "Left School")) {
+                                        outcomes = outcomes + (student.id to it)
+                                    }
+                                }
+                                Box(Modifier.weight(1f)) {
+                                    OutlinedTextField(
+                                        value = rollEdits[student.id] ?: student.studentId,
+                                        onValueChange = { rollEdits = rollEdits + (student.id to it) },
+                                        label = { Text("New roll") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                                        enabled = (outcomes[student.id] ?: "Promote") != "Left School"
+                                    )
+                                }
+                            }
+                            val outcome = outcomes[student.id] ?: "Promote"
+                            Text(
+                                when (outcome) { "Promote" -> "Will move to Class $targetClass"; "Repeat" -> "Will remain in Class ${student.className}"; else -> "Will be marked as left school" },
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 6.dp))
+        Button(onClick = { showConfirm = true }, enabled = selectedIds.isNotEmpty() && !busy, modifier = Modifier.fillMaxWidth()) {
+            Text(if (busy) "Saving…" else "Review and confirm promotion")
+        }
+    }
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = { Text("Confirm student changes") },
+            text = { Text("Apply changes to ${selectedIds.size} selected students? New academic year: $targetYear. Student names and permanent database IDs will remain unchanged. Previous attendance and exam rows will not be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirm = false
+                    busy = true
+                    message = ""
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                        try {
+                            val changes = selectedIds.map { id ->
+                                val student = visibleStudents.first { it.id == id }
+                                SchoolRepository.PromotionChange(id, rollEdits[id] ?: student.studentId, outcomes[id] ?: "Promote")
+                            }
+                            val invalid = changes.any { it.outcome != "Left School" && it.newRoll.isBlank() }
+                            if (invalid) throw IllegalArgumentException("Enter a roll number for every selected student.")
+                            val duplicateTargets = changes.filter { it.outcome != "Left School" }.groupBy { change ->
+                                val student = visibleStudents.first { it.id == change.studentId }
+                                val cls = if (change.outcome == "Promote") targetClass else student.className
+                                "$cls|${student.section}|${change.newRoll.trim()}"
+                            }.filterValues { it.size > 1 }
+                            if (duplicateTargets.isNotEmpty()) throw IllegalArgumentException("Two selected students cannot have the same class, section and roll number.")
+                            val conflicts = changes.any { change ->
+                                if (change.outcome == "Left School") false else {
+                                    val student = visibleStudents.first { it.id == change.studentId }
+                                    val cls = if (change.outcome == "Promote") targetClass else student.className
+                                    allStudents.any { other -> other.id !in selectedIds && other.className == cls && other.section == student.section && other.studentId == change.newRoll.trim() && other.activeStatus == "active" }
+                                }
+                            }
+                            if (conflicts) throw IllegalArgumentException("A roll number already exists in the destination class and section. Please edit it.")
+                            repository.applyPromotion(changes, targetClass, targetYear)
+                            selectedIds = emptySet()
+                            message = "Promotion saved locally. Firebase sync has been queued."
+                        } catch (e: Exception) {
+                            message = e.message ?: "Could not save promotion."
+                        } finally { busy = false }
+                    }
+                }) { Text("Confirm") }
+            },
+            dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("Cancel") } }
+        )
+    }
+}
+
+@Composable
 private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
     var query by remember { mutableStateOf("") }
     val allStudents by repository.students(query).collectAsState(initial = emptyList())
@@ -940,7 +1094,9 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
             religion = religion,
             fatherName = father.trim(),
             address = address.trim(),
-            mobileNumber = mobile.trim()
+            mobileNumber = mobile.trim(),
+            academicYear = existing?.academicYear?.ifBlank { LocalDate.now().year.toString() } ?: LocalDate.now().year.toString(),
+            activeStatus = existing?.activeStatus ?: "active"
         )
         scope.launch {
             try {

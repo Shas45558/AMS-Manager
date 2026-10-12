@@ -14,5 +14,7 @@ data class Student(
     val religion: String = "",
     val fatherName: String = "",
     val address: String = "",
-    val mobileNumber: String = ""
+    val mobileNumber: String = "",
+    val academicYear: String = "",
+    val activeStatus: String = "active"
 )

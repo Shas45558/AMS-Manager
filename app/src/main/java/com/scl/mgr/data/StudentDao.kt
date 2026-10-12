@@ -5,16 +5,16 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface StudentDao {
-    @Query("SELECT * FROM students ORDER BY className, section, studentId, studentName COLLATE NOCASE")
+    @Query("SELECT * FROM students WHERE activeStatus = 'active' ORDER BY className, section, studentId, studentName COLLATE NOCASE")
     fun observeAll(): Flow<List<Student>>
 
     @Query("""
         SELECT * FROM students
-        WHERE studentName LIKE '%' || :query || '%'
+        WHERE activeStatus = 'active' AND (studentName LIKE '%' || :query || '%'
            OR studentId LIKE '%' || :query || '%'
            OR className LIKE '%' || :query || '%'
            OR section LIKE '%' || :query || '%'
-           OR fatherName LIKE '%' || :query || '%'
+           OR fatherName LIKE '%' || :query || '%')
         ORDER BY className, section, studentId, studentName COLLATE NOCASE
     """)
     fun search(query: String): Flow<List<Student>>

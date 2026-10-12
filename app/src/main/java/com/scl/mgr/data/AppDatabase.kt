@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Student::class, Attendance::class, MonthlyExam::class, ExamMark::class, TeacherAccount::class, PendingStudentDeletion::class, PendingStudentUpsert::class],
-    version = 8,
+    entities = [Student::class, Attendance::class, MonthlyExam::class, ExamMark::class, TeacherAccount::class, PendingStudentDeletion::class, PendingStudentUpsert::class, StudentPromotionHistory::class],
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -20,6 +20,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun teacherAccountDao(): TeacherAccountDao
     abstract fun pendingStudentDeletionDao(): PendingStudentDeletionDao
     abstract fun pendingStudentUpsertDao(): PendingStudentUpsertDao
+    abstract fun studentPromotionHistoryDao(): StudentPromotionHistoryDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -86,6 +87,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE students ADD COLUMN academicYear TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE students ADD COLUMN activeStatus TEXT NOT NULL DEFAULT 'active'")
+                db.execSQL("CREATE TABLE IF NOT EXISTS student_promotion_history (historyId TEXT NOT NULL PRIMARY KEY, studentId INTEGER NOT NULL, studentName TEXT NOT NULL, fromClass TEXT NOT NULL, fromSection TEXT NOT NULL, fromRoll TEXT NOT NULL, fromAcademicYear TEXT NOT NULL, toClass TEXT NOT NULL, toSection TEXT NOT NULL, toRoll TEXT NOT NULL, toAcademicYear TEXT NOT NULL, outcome TEXT NOT NULL, changedAt INTEGER NOT NULL)")
+            }
+        }
+
         @Volatile private var INSTANCE: AppDatabase? = null
 
         fun get(context: Context): AppDatabase =
@@ -95,7 +104,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "school_manager.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build()
                     .also { INSTANCE = it }
             }

@@ -36,6 +36,42 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
         AutoSyncScheduler.enqueue(context)
     }
 
+
+    data class PromotionChange(val studentId: Long, val newRoll: String, val outcome: String)
+
+    suspend fun applyPromotion(changes: List<PromotionChange>, targetClass: String, targetYear: String) {
+        val now = System.currentTimeMillis()
+        for (change in changes) {
+            val current = db.studentDao().getById(change.studentId) ?: continue
+            val fromYear = current.academicYear.ifBlank { (java.time.LocalDate.now().year).toString() }
+            val nextClass = when (change.outcome) {
+                "Promote" -> targetClass
+                "Repeat" -> current.className
+                "Left School" -> current.className
+                else -> current.className
+            }
+            val status = if (change.outcome == "Left School") "left" else "active"
+            val history = StudentPromotionHistory(
+                historyId = "${current.id}_${now}_${change.outcome.replace(" ", "_")}",
+                studentId = current.id, studentName = current.studentName,
+                fromClass = current.className, fromSection = current.section, fromRoll = current.studentId,
+                fromAcademicYear = fromYear, toClass = nextClass, toSection = current.section,
+                toRoll = change.newRoll.trim(), toAcademicYear = targetYear, outcome = change.outcome, changedAt = now
+            )
+            db.studentPromotionHistoryDao().insert(history)
+            db.studentDao().update(current.copy(
+                className = nextClass,
+                studentId = change.newRoll.trim(),
+                academicYear = targetYear,
+                activeStatus = status
+            ))
+            db.pendingStudentUpsertDao().add(PendingStudentUpsert(current.id))
+        }
+        AutoSyncScheduler.enqueue(context)
+    }
+
+    suspend fun promotionHistoryOnce(): List<StudentPromotionHistory> = db.studentPromotionHistoryDao().getAllOnce()
+
     suspend fun getStudent(id: Long): Student? = db.studentDao().getById(id)
 
     suspend fun duplicateExists(student: Student): Boolean =
