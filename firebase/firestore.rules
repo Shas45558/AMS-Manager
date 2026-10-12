@@ -54,8 +54,12 @@ service cloud.firestore {
       allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(request.resource.data.studentId));
     }
     match /schools/{schoolId}/deletedStudents/{studentId} {
-      allow read: if schoolId == 'ams-manager-b1434' && isAdmin();
-      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
+      // Teachers may read tombstones only for their assigned class/section.
+      // Their query must filter on both fields; admins may read all tombstones.
+      allow read: if schoolId == 'ams-manager-b1434' &&
+        (isAdmin() || assigned(resource.data.className, resource.data.section));
+      allow create, update: if schoolId == 'ams-manager-b1434' &&
+        (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
       allow delete: if schoolId == 'ams-manager-b1434' && isAdmin();
     }
     match /schools/{schoolId}/{document=**} {

@@ -39,7 +39,14 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         val tombstoneCollection = school.collection("deletedStudents")
         // Every device must read cloud tombstones. Otherwise a teacher's stale Room copy
         // survives an admin deletion and can be uploaded again during the teacher sync.
-        val remoteTombstones = tombstoneCollection.get().await().documents
+        // Teachers must query only their assigned class/section so Firestore rules
+        // can authorize the query without exposing other classes' deletion metadata.
+        val remoteTombstones = if (isAdmin) {
+            tombstoneCollection.get().await().documents
+        } else {
+            tombstoneCollection.whereEqualTo("className", assignedClass)
+                .whereEqualTo("section", assignedSection).get().await().documents
+        }
         val remoteDeletedIds = remoteTombstones.mapNotNull { d ->
             val className = d.getString("className")
             val section = d.getString("section")
