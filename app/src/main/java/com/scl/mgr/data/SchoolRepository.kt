@@ -7,6 +7,8 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
     fun students(query: String): Flow<List<Student>> =
         if (query.isBlank()) db.studentDao().observeAll() else db.studentDao().search(query)
 
+    fun oldStudents(): Flow<List<Student>> = db.studentDao().observeOld()
+
     fun studentCount(): Flow<Int> = db.studentDao().observeCount()
 
     suspend fun addStudent(student: Student): Long {
@@ -39,8 +41,14 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
 
     data class PromotionChange(val studentId: Long, val newRoll: String, val outcome: String)
 
-    suspend fun applyPromotion(changes: List<PromotionChange>, targetClass: String, targetYear: String) {
+    suspend fun applyPromotion(changes: List<PromotionChange>, targetClass: String, targetYear: String, moveConflictsToOld: Set<Long> = emptySet()) {
         val now = System.currentTimeMillis()
+        // Archive destination-roll conflicts without deleting identity or academic records.
+        for (conflictId in moveConflictsToOld) {
+            val existing = db.studentDao().getById(conflictId) ?: continue
+            db.studentDao().update(existing.copy(activeStatus = "old"))
+            db.pendingStudentUpsertDao().add(PendingStudentUpsert(existing.id))
+        }
         for (change in changes) {
             val current = db.studentDao().getById(change.studentId) ?: continue
             val fromYear = current.academicYear.ifBlank { (java.time.LocalDate.now().year).toString() }

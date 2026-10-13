@@ -801,22 +801,26 @@ private fun AttendanceCountCard(title: String, count: Int, icon: androidx.compos
 @Composable
 private fun StudentPromotionScreen(repository: SchoolRepository) {
     val allStudents by repository.students("").collectAsState(initial = emptyList())
+    val oldStudents by repository.oldStudents().collectAsState(initial = emptyList())
     val context = LocalContext.current
     val currentYear = remember { LocalDate.now().year }
-    val classOptions = remember(allStudents) { allStudents.map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 }) }
+    val classOptions = remember(allStudents, oldStudents) { (allStudents + oldStudents).map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 }) }
     var sourceClass by rememberSaveable { mutableStateOf("") }
     var sourceSection by rememberSaveable { mutableStateOf("All") }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var rollEdits by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
     var outcomes by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
     var showConfirm by remember { mutableStateOf(false) }
+    var includeOldStudents by rememberSaveable { mutableStateOf(false) }
+    var moveConflictsToOld by rememberSaveable { mutableStateOf(true) }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     LaunchedEffect(classOptions) { if (sourceClass.isBlank() && classOptions.isNotEmpty()) sourceClass = classOptions.first() }
-    val sectionOptions = remember(allStudents, sourceClass) { listOf("All") + allStudents.filter { it.className == sourceClass }.map { it.section }.distinct().sorted() }
+    val sectionOptions = remember(allStudents, oldStudents, sourceClass) { listOf("All") + (allStudents + oldStudents).filter { it.className == sourceClass }.map { it.section }.distinct().sorted() }
     LaunchedEffect(sectionOptions) { if (sourceSection !in sectionOptions) sourceSection = "All" }
-    val visibleStudents = remember(allStudents, sourceClass, sourceSection) {
-        allStudents.filter { it.className == sourceClass && (sourceSection == "All" || it.section == sourceSection) }
+    val visibleStudents = remember(allStudents, oldStudents, sourceClass, sourceSection, includeOldStudents) {
+        (allStudents + if (includeOldStudents) oldStudents else emptyList())
+            .filter { it.className == sourceClass && (sourceSection == "All" || it.section == sourceSection) }
     }
     val targetClass = (sourceClass.toIntOrNull()?.plus(1))?.toString() ?: sourceClass
     val targetYear = (currentYear + 1).toString()
@@ -825,6 +829,14 @@ private fun StudentPromotionScreen(repository: SchoolRepository) {
         Text("Promote students safely", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
         Text("Student IDs and academic history stay unchanged. Choose outcomes and edit roll numbers before confirming.", style = MaterialTheme.typography.bodyMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = includeOldStudents, onCheckedChange = { includeOldStudents = it; selectedIds = emptySet() })
+            Text("Show Old Students for later promotion")
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = moveConflictsToOld, onCheckedChange = { moveConflictsToOld = it })
+            Text("Move existing roll-number conflicts to Old Students")
+        }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(Modifier.weight(1f)) { DropdownField("Current class", sourceClass, classOptions.ifEmpty { listOf("6") }) { sourceClass = it; selectedIds = emptySet() } }
@@ -867,6 +879,7 @@ private fun StudentPromotionScreen(repository: SchoolRepository) {
                             Column(Modifier.weight(1f)) {
                                 Text(student.studentName, fontWeight = FontWeight.SemiBold)
                                 Text("Class ${student.className}-${student.section} • Roll ${student.studentId}", style = MaterialTheme.typography.bodySmall)
+                                if (student.activeStatus == "old") Text("OLD STUDENT", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                         if (selected) {
@@ -924,15 +937,17 @@ private fun StudentPromotionScreen(repository: SchoolRepository) {
                                 "$cls|${student.section}|${change.newRoll.trim()}"
                             }.filterValues { it.size > 1 }
                             if (duplicateTargets.isNotEmpty()) throw IllegalArgumentException("Two selected students cannot have the same class, section and roll number.")
-                            val conflicts = changes.any { change ->
-                                if (change.outcome == "Left School") false else {
+                            val conflictIds = changes.flatMap { change ->
+                                if (change.outcome == "Left School") emptyList() else {
                                     val student = visibleStudents.first { it.id == change.studentId }
                                     val cls = if (change.outcome == "Promote") targetClass else student.className
-                                    allStudents.any { other -> other.id !in selectedIds && other.className == cls && other.section == student.section && other.studentId == change.newRoll.trim() && other.activeStatus == "active" }
+                                    allStudents.filter { other -> other.id !in selectedIds && other.className == cls && other.section == student.section && other.studentId == change.newRoll.trim() && other.activeStatus == "active" }.map { it.id }
                                 }
+                            }.toSet()
+                            if (conflictIds.isNotEmpty() && !moveConflictsToOld) {
+                                throw IllegalArgumentException("A roll number already exists. Enable 'Move existing roll-number conflicts to Old Students' or edit the roll number.")
                             }
-                            if (conflicts) throw IllegalArgumentException("A roll number already exists in the destination class and section. Please edit it.")
-                            repository.applyPromotion(changes, targetClass, targetYear)
+                            repository.applyPromotion(changes, targetClass, targetYear, conflictIds)
                             selectedIds = emptySet()
                             message = "Promotion saved locally. Firebase sync has been queued."
                         } catch (e: Exception) {
