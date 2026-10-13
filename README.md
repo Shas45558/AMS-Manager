@@ -16,3 +16,5 @@
 4. Test promotion, SSC year assignment/change/removal, student filters, and admin/teacher synchronization with test students before using real records.
 
 Keep a backup of your current project and Firebase data before upgrading.
+
+SSC drawer visibility: once a Class 10 student is assigned an SSC exam year, the student remains in Class 10 and appears in the SSC Students drawer only. Assigned SSC students are excluded from the regular Students drawer and regular student search. The SSC Students drawer continues to show assigned students and their SSC year.

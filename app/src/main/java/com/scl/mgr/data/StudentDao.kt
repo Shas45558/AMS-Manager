@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface StudentDao {
-    @Query("SELECT * FROM students WHERE activeStatus = 'active' ORDER BY className, section, studentId, studentName COLLATE NOCASE")
+    @Query("SELECT * FROM students WHERE activeStatus = 'active' AND (sscYear IS NULL OR sscYear = '') ORDER BY className, section, studentId, studentName COLLATE NOCASE")
     fun observeAll(): Flow<List<Student>>
 
     @Query("SELECT * FROM students WHERE activeStatus = 'old' ORDER BY className, section, studentId, studentName COLLATE NOCASE")
@@ -16,7 +16,7 @@ interface StudentDao {
 
     @Query("""
         SELECT * FROM students
-        WHERE activeStatus = 'active' AND (studentName LIKE '%' || :query || '%'
+        WHERE activeStatus = 'active' AND (sscYear IS NULL OR sscYear = '') AND (studentName LIKE '%' || :query || '%'
            OR studentId LIKE '%' || :query || '%'
            OR className LIKE '%' || :query || '%'
            OR section LIKE '%' || :query || '%'
