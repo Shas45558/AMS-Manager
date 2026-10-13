@@ -61,6 +61,9 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
         }
         for (change in changes) {
             val current = db.studentDao().getById(change.studentId) ?: continue
+            if (current.className == "10" && change.outcome == "Promote") {
+                throw IllegalArgumentException("Class 10 students must be assigned an SSC year; they cannot be promoted to Class 11.")
+            }
             val fromYear = current.academicYear.ifBlank { (java.time.LocalDate.now().year).toString() }
             val nextClass = when (change.outcome) {
                 "Promote" -> targetClass

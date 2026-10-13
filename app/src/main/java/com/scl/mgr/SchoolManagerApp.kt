@@ -828,8 +828,10 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
         (allStudents + if (includeOldStudents) oldStudents else emptyList())
             .filter { it.className == sourceClass && (sourceSection == "All" || it.section == sourceSection) && (!teacherMode || it.section == assignedSection) }
     }
+    val isSscClass = sourceClass == "10"
     val targetClass = (sourceClass.toIntOrNull()?.plus(1))?.toString() ?: sourceClass
     val targetYear = (currentYear + 1).toString()
+    val defaultOutcome = if (isSscClass) "Assign SSC year" else "Promote"
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Promote students safely", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -852,8 +854,13 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
         }
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {
-                Text("Target class: $targetClass", fontWeight = FontWeight.SemiBold)
-                Text("Next academic year: $targetYear")
+                if (isSscClass) {
+                    Text("Class 10 students stay in Class 10", fontWeight = FontWeight.SemiBold)
+                    Text("They will be assigned to SSC-$targetYear. They will NOT be moved to Class 11.")
+                } else {
+                    Text("Target class: $targetClass", fontWeight = FontWeight.SemiBold)
+                    Text("Next academic year: $targetYear")
+                }
                 Text("Section is kept unchanged for each student.", style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -865,7 +872,7 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
                     selectedIds = visibleStudents.map { it.id }.toSet()
                     visibleStudents.forEach { st ->
                         if (rollEdits[st.id] == null) rollEdits = rollEdits + (st.id to st.studentId)
-                        if (outcomes[st.id] == null) outcomes = outcomes + (st.id to "Promote")
+                        if (outcomes[st.id] == null) outcomes = outcomes + (st.id to defaultOutcome)
                     }
                 }
             }) { Text(if (selectedIds.size == visibleStudents.size && visibleStudents.isNotEmpty()) "Clear selection" else "Select all") }
@@ -881,7 +888,7 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
                                 selectedIds = if (checked) selectedIds + student.id else selectedIds - student.id
                                 if (checked) {
                                     rollEdits = rollEdits + (student.id to (rollEdits[student.id] ?: student.studentId))
-                                    outcomes = outcomes + (student.id to (outcomes[student.id] ?: "Promote"))
+                                    outcomes = outcomes + (student.id to (outcomes[student.id] ?: defaultOutcome))
                                 }
                             })
                             Column(Modifier.weight(1f)) {
@@ -893,7 +900,9 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
                         if (selected) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.weight(1f)) {
-                                    DropdownField("Outcome", outcomes[student.id] ?: "Promote", listOf("Promote", "Repeat", "Left School")) {
+                                    val outcomeOptions = if (isSscClass) listOf("Assign SSC year", "Left School") else listOf("Promote", "Repeat", "Left School")
+                                    val selectedOutcome = outcomes[student.id]?.takeIf { it in outcomeOptions } ?: defaultOutcome
+                                    DropdownField("Outcome", selectedOutcome, outcomeOptions) {
                                         outcomes = outcomes + (student.id to it)
                                     }
                                 }
@@ -902,13 +911,13 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
                                         value = rollEdits[student.id] ?: student.studentId,
                                         onValueChange = { rollEdits = rollEdits + (student.id to it) },
                                         label = { Text("New roll") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                                        enabled = (outcomes[student.id] ?: "Promote") != "Left School"
+                                        enabled = (outcomes[student.id] ?: defaultOutcome) !in setOf("Left School", "Assign SSC year")
                                     )
                                 }
                             }
-                            val outcome = outcomes[student.id] ?: "Promote"
+                            val outcome = outcomes[student.id]?.takeIf { it in (if (isSscClass) listOf("Assign SSC year", "Left School") else listOf("Promote", "Repeat", "Left School")) } ?: defaultOutcome
                             Text(
-                                when (outcome) { "Promote" -> "Will move to Class $targetClass"; "Repeat" -> "Will remain in Class ${student.className}"; else -> "Will be marked as left school" },
+                                when (outcome) { "Promote" -> "Will move to Class $targetClass"; "Assign SSC year" -> "Will stay in Class 10 and be assigned SSC-$targetYear"; "Repeat" -> "Will remain in Class ${student.className}"; else -> "Will be marked as left school" },
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary
                             )
                         }
@@ -925,7 +934,7 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
         AlertDialog(
             onDismissRequest = { showConfirm = false },
             title = { Text("Confirm student changes") },
-            text = { Text("Apply changes to ${selectedIds.size} selected students? New academic year: $targetYear. Student names and permanent database IDs will remain unchanged. Previous attendance and exam rows will not be deleted.") },
+            text = { Text(if (isSscClass) "Apply changes to ${selectedIds.size} selected Class 10 students? Assign SSC-$targetYear where selected. Class 10 students will stay in Class 10; they will not be moved to Class 11. Student names, rolls, permanent IDs, and previous records remain unchanged for SSC assignment." else "Apply changes to ${selectedIds.size} selected students? New academic year: $targetYear. Student names and permanent database IDs will remain unchanged. Previous attendance and exam rows will not be deleted.") },
             confirmButton = {
                 TextButton(onClick = {
                     showConfirm = false
@@ -935,18 +944,20 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
                         try {
                             val changes = selectedIds.map { id ->
                                 val student = visibleStudents.first { it.id == id }
-                                SchoolRepository.PromotionChange(id, rollEdits[id] ?: student.studentId, outcomes[id] ?: "Promote")
+                                val validOptions = if (isSscClass) listOf("Assign SSC year", "Left School") else listOf("Promote", "Repeat", "Left School")
+                                val outcome = outcomes[id]?.takeIf { it in validOptions } ?: defaultOutcome
+                                SchoolRepository.PromotionChange(id, if (outcome == "Assign SSC year") student.studentId else rollEdits[id] ?: student.studentId, outcome)
                             }
-                            val invalid = changes.any { it.outcome != "Left School" && it.newRoll.isBlank() }
+                            val invalid = changes.any { it.outcome !in setOf("Left School", "Assign SSC year") && it.newRoll.isBlank() }
                             if (invalid) throw IllegalArgumentException("Enter a roll number for every selected student.")
-                            val duplicateTargets = changes.filter { it.outcome != "Left School" }.groupBy { change ->
+                            val duplicateTargets = changes.filter { it.outcome !in setOf("Left School", "Assign SSC year") }.groupBy { change ->
                                 val student = visibleStudents.first { it.id == change.studentId }
                                 val cls = if (change.outcome == "Promote") targetClass else student.className
                                 "$cls|${student.section}|${change.newRoll.trim()}"
                             }.filterValues { it.size > 1 }
                             if (duplicateTargets.isNotEmpty()) throw IllegalArgumentException("Two selected students cannot have the same class, section and roll number.")
                             val conflictIds = changes.flatMap { change ->
-                                if (change.outcome == "Left School") emptyList() else {
+                                if (change.outcome in setOf("Left School", "Assign SSC year")) emptyList() else {
                                     val student = visibleStudents.first { it.id == change.studentId }
                                     val cls = if (change.outcome == "Promote") targetClass else student.className
                                     allStudents.filter { other -> other.id !in selectedIds && other.className == cls && other.section == student.section && other.studentId == change.newRoll.trim() && other.activeStatus == "active" }.map { it.id }
@@ -955,9 +966,12 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
                             if (conflictIds.isNotEmpty() && !moveConflictsToOld) {
                                 throw IllegalArgumentException("A roll number already exists. Enable 'Move existing roll-number conflicts to Old Students' or edit the roll number.")
                             }
-                            repository.applyPromotion(changes, targetClass, targetYear, conflictIds)
+                            val sscAssignments = changes.filter { it.outcome == "Assign SSC year" }
+                            sscAssignments.forEach { repository.assignSscYear(it.studentId, targetYear) }
+                            val actualPromotions = changes.filter { it.outcome != "Assign SSC year" }
+                            if (actualPromotions.isNotEmpty()) repository.applyPromotion(actualPromotions, targetClass, targetYear, conflictIds)
                             selectedIds = emptySet()
-                            message = "Promotion saved locally. Firebase sync has been queued."
+                            message = if (isSscClass) "SSC-$targetYear assignment saved. Class 10 students remain in Class 10; no Class 11 promotion was made. Firebase sync has been queued." else "Promotion saved locally. Firebase sync has been queued."
                         } catch (e: Exception) {
                             message = e.message ?: "Could not save promotion."
                         } finally { busy = false }
@@ -984,8 +998,8 @@ private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, a
         (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank() && student.className == assignedClass && student.section == assignedSection)) &&
         (teacherMode || classFilter == "All" || student.className == classFilter) &&
         (teacherMode || sectionFilter == "All" || student.section == sectionFilter) &&
-        (teacherMode || genderFilter == "All" || student.gender.equals(genderFilter, true)) &&
-        (teacherMode || religionFilter == "All" || student.religion.equals(religionFilter, true))
+        (genderFilter == "All" || student.gender.equals(genderFilter, true)) &&
+        (religionFilter == "All" || student.religion.equals(religionFilter, true))
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -995,10 +1009,12 @@ private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, a
                     Box(Modifier.weight(1f)) { DropdownField("Class", classFilter, classOptions) { classFilter = it; sectionFilter = "All" } }
                     Box(Modifier.weight(1f)) { DropdownField("Section", sectionFilter, sectionOptions) { sectionFilter = it } }
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f)) { DropdownField("Gender", genderFilter, listOf("All", "Boy", "Girl")) { genderFilter = it } }
-                    Box(Modifier.weight(1f)) { DropdownField("Religion", religionFilter, listOf("All", "Muslim", "Hindu", "Christian", "Buddhist", "Other")) { religionFilter = it } }
-                }
+            } else {
+                Text("Assigned class: $assignedClass • Section: $assignedSection", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) { DropdownField("Gender", genderFilter, listOf("All", "Boy", "Girl")) { genderFilter = it } }
+                Box(Modifier.weight(1f)) { DropdownField("Religion", religionFilter, listOf("All", "Muslim", "Hindu", "Christian", "Buddhist", "Other")) { religionFilter = it } }
             }
             if (students.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (teacherMode && (assignedClass.isBlank() || assignedSection.isBlank())) "No class/section assigned. Contact the administrator." else if (query.isBlank()) "No students match these filters." else "No students found.") }
