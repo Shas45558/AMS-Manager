@@ -9,6 +9,16 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
 
     fun oldStudents(): Flow<List<Student>> = db.studentDao().observeOld()
 
+    fun sscStudents(): Flow<List<Student>> = db.studentDao().observeSscStudents()
+
+    suspend fun assignSscYear(studentId: Long, sscYear: String) {
+        val current = db.studentDao().getById(studentId) ?: return
+        if (current.className != "10") throw IllegalArgumentException("SSC year can only be assigned to Class 10 students.")
+        db.studentDao().update(current.copy(sscYear = sscYear.trim()))
+        db.pendingStudentUpsertDao().add(PendingStudentUpsert(current.id))
+        AutoSyncScheduler.enqueue(context)
+    }
+
     fun studentCount(): Flow<Int> = db.studentDao().observeCount()
 
     suspend fun addStudent(student: Student): Long {
@@ -71,7 +81,8 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
                 className = nextClass,
                 studentId = change.newRoll.trim(),
                 academicYear = targetYear,
-                activeStatus = status
+                activeStatus = status,
+                sscYear = if (nextClass == "10" && change.outcome == "Repeat") targetYear else current.sscYear
             ))
             db.pendingStudentUpsertDao().add(PendingStudentUpsert(current.id))
         }

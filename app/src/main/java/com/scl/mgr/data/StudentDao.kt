@@ -11,6 +11,9 @@ interface StudentDao {
     @Query("SELECT * FROM students WHERE activeStatus = 'old' ORDER BY className, section, studentId, studentName COLLATE NOCASE")
     fun observeOld(): Flow<List<Student>>
 
+    @Query("SELECT * FROM students WHERE activeStatus = 'active' AND sscYear != '' ORDER BY sscYear, className, section, studentId, studentName COLLATE NOCASE")
+    fun observeSscStudents(): Flow<List<Student>>
+
     @Query("""
         SELECT * FROM students
         WHERE activeStatus = 'active' AND (studentName LIKE '%' || :query || '%'

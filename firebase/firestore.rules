@@ -23,6 +23,19 @@ service cloud.firestore {
         && get(teacherPath()).data.assignedClass == className
         && get(teacherPath()).data.assignedSection == section;
     }
+    function sameOrNextClass(fromClass, toClass) {
+      return fromClass == toClass
+        || (fromClass == '1' && toClass == '2')
+        || (fromClass == '2' && toClass == '3')
+        || (fromClass == '3' && toClass == '4')
+        || (fromClass == '4' && toClass == '5')
+        || (fromClass == '5' && toClass == '6')
+        || (fromClass == '6' && toClass == '7')
+        || (fromClass == '7' && toClass == '8')
+        || (fromClass == '8' && toClass == '9')
+        || (fromClass == '9' && toClass == '10')
+        || (fromClass == '10' && toClass == '11');
+    }
     function studentInAssignment(studentId) {
       return isEnabledTeacher()
         && exists(/databases/$(database)/documents/schools/ams-manager-b1434/students/$(studentId))
@@ -39,7 +52,12 @@ service cloud.firestore {
     match /schools/{schoolId}/students/{studentId} {
       allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
-      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section)));
+      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && request.resource.data.section == resource.data.section && sameOrNextClass(resource.data.className, request.resource.data.className)));
+    }
+    match /schools/{schoolId}/promotionHistory/{historyId} {
+      allow read: if schoolId == 'ams-manager-b1434' && isAdmin();
+      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.fromClass, request.resource.data.fromSection));
+      allow delete: if schoolId == 'ams-manager-b1434' && isAdmin();
     }
     match /schools/{schoolId}/attendance/{recordId} {
       allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(resource.data.studentId));

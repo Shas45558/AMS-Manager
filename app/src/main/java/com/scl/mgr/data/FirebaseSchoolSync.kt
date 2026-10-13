@@ -62,20 +62,21 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
                 db.pendingStudentUpsertDao().remove(pending.studentId)
                 continue
             }
-            if (!isAdmin && (student.className != assignedClass || student.section != assignedSection)) continue
+            // A teacher may promote a student out of their assigned class; Firestore rules
+            // validate the existing cloud row is in their assignment and the section is unchanged.
             school.collection("students").document(student.id.toString()).set(mapOf(
                 "id" to student.id, "studentName" to student.studentName, "studentId" to student.studentId,
                 "className" to student.className, "section" to student.section, "gender" to student.gender,
                 "religion" to student.religion, "fatherName" to student.fatherName, "address" to student.address,
-                "mobileNumber" to student.mobileNumber, "academicYear" to student.academicYear, "activeStatus" to student.activeStatus
+                "mobileNumber" to student.mobileNumber, "academicYear" to student.academicYear, "activeStatus" to student.activeStatus, "sscYear" to student.sscYear
             )).await()
             db.pendingStudentUpsertDao().remove(student.id)
         }
 
-        // Promotion history is immutable audit data. Only the admin writes it; old
-        // class/roll/year snapshots remain available after a student's current class changes.
-        if (isAdmin) {
-            val localHistory = db.studentPromotionHistoryDao().getAllOnce()
+        // Promotion history is immutable audit data. Admin writes all history; teachers may upload
+        // only history originating from their assigned class and section.
+        if (isAdmin || assignedClass.isNotBlank()) {
+            val localHistory = db.studentPromotionHistoryDao().getAllOnce().filter { h -> isAdmin || (h.fromClass == assignedClass && h.fromSection == assignedSection) }
             for (h in localHistory) {
                 school.collection("promotionHistory").document(h.historyId).set(mapOf(
                     "historyId" to h.historyId, "studentId" to h.studentId, "studentName" to h.studentName,
@@ -85,7 +86,7 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
                     "changedAt" to h.changedAt
                 )).await()
             }
-            val remoteHistory = school.collection("promotionHistory").get().await().documents.mapNotNull { d ->
+            val remoteHistory = if (isAdmin) school.collection("promotionHistory").get().await().documents.mapNotNull { d ->
                 val m = d.data ?: return@mapNotNull null
                 StudentPromotionHistory(
                     historyId = m["historyId"] as? String ?: d.id,
@@ -97,7 +98,7 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
                     toRoll = m["toRoll"] as? String ?: "", toAcademicYear = m["toAcademicYear"] as? String ?: "",
                     outcome = m["outcome"] as? String ?: "", changedAt = (m["changedAt"] as? Number)?.toLong() ?: 0L
                 )
-            }
+            } else emptyList()
             db.studentPromotionHistoryDao().insertAll(remoteHistory)
         }
 
@@ -118,7 +119,7 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         remoteStudentDocs.forEach { d ->
             val m = d.data ?: return@forEach
             val id = m.long("id") ?: d.id.toLongOrNull() ?: return@forEach
-            db.studentDao().upsert(Student(id, m.str("studentName"), m.str("studentId"), m.str("className"), m.str("section"), m.str("gender"), m.str("religion"), m.str("fatherName"), m.str("address"), m.str("mobileNumber"), m.str("academicYear"), m.str("activeStatus").ifBlank { "active" }))
+            db.studentDao().upsert(Student(id, m.str("studentName"), m.str("studentId"), m.str("className"), m.str("section"), m.str("gender"), m.str("religion"), m.str("fatherName"), m.str("address"), m.str("mobileNumber"), m.str("academicYear"), m.str("activeStatus").ifBlank { "active" }, m.str("sscYear")))
         }
         val students = if (isAdmin) db.studentDao().getAllOnce() else db.studentDao().getAllOnce().filter { it.className == assignedClass && it.section == assignedSection }
         val assignedIds = students.map { it.id }.toSet()

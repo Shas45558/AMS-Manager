@@ -155,6 +155,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("dashboard", "Dashboard", Icons.Default.Home),
             DrawerItem("students", "Students", Icons.Default.School),
             DrawerItem("promotion", "Student Promotion", Icons.Default.Upgrade),
+            DrawerItem("ssc_students", "SSC Students", Icons.Default.School),
             DrawerItem("teachers", "Teachers", Icons.Default.Person, true),
             DrawerItem("classes", "Classes", Icons.Default.Class, true),
             DrawerItem("subjects", "Subjects", Icons.Default.MenuBook, true),
@@ -218,7 +219,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "attendance", "monthly_exam", "exams", "settings") } else items
+                        val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "monthly_exam", "exams", "settings") } else items
                         items(visibleItems, key = { it.route }) { item ->
                             NavigationDrawerItem(
                                 label = {
@@ -294,7 +295,12 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             }
             composable("promotion") {
                 AppScaffold("Student Promotion", drawerState, scope) {
-                    StudentPromotionScreen(repository)
+                    StudentPromotionScreen(repository, teacherMode = activeRole == "Teacher", assignedClass = authPrefs.getString("assigned_class", "") ?: "", assignedSection = authPrefs.getString("assigned_section", "") ?: "")
+                }
+            }
+            composable("ssc_students") {
+                AppScaffold("SSC Students", drawerState, scope) {
+                    SscStudentsScreen(repository, teacherMode = activeRole == "Teacher", assignedClass = authPrefs.getString("assigned_class", "") ?: "", assignedSection = authPrefs.getString("assigned_section", "") ?: "")
                 }
             }
             composable("attendance") {
@@ -799,12 +805,12 @@ private fun AttendanceCountCard(title: String, count: Int, icon: androidx.compos
 }
 
 @Composable
-private fun StudentPromotionScreen(repository: SchoolRepository) {
+private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String) {
     val allStudents by repository.students("").collectAsState(initial = emptyList())
     val oldStudents by repository.oldStudents().collectAsState(initial = emptyList())
     val context = LocalContext.current
     val currentYear = remember { LocalDate.now().year }
-    val classOptions = remember(allStudents, oldStudents) { (allStudents + oldStudents).map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 }) }
+    val classOptions = remember(allStudents, oldStudents, teacherMode, assignedClass) { if (teacherMode) listOf(assignedClass).filter { it.isNotBlank() } else (allStudents + oldStudents).map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 }) }
     var sourceClass by rememberSaveable { mutableStateOf("") }
     var sourceSection by rememberSaveable { mutableStateOf("All") }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
@@ -815,12 +821,12 @@ private fun StudentPromotionScreen(repository: SchoolRepository) {
     var moveConflictsToOld by rememberSaveable { mutableStateOf(true) }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    LaunchedEffect(classOptions) { if (sourceClass.isBlank() && classOptions.isNotEmpty()) sourceClass = classOptions.first() }
+    LaunchedEffect(classOptions, teacherMode, assignedClass) { sourceClass = if (teacherMode) assignedClass else if (sourceClass.isBlank() && classOptions.isNotEmpty()) classOptions.first() else sourceClass }
     val sectionOptions = remember(allStudents, oldStudents, sourceClass) { listOf("All") + (allStudents + oldStudents).filter { it.className == sourceClass }.map { it.section }.distinct().sorted() }
     LaunchedEffect(sectionOptions) { if (sourceSection !in sectionOptions) sourceSection = "All" }
-    val visibleStudents = remember(allStudents, oldStudents, sourceClass, sourceSection, includeOldStudents) {
+    val visibleStudents = remember(allStudents, oldStudents, sourceClass, sourceSection, includeOldStudents, teacherMode, assignedSection) {
         (allStudents + if (includeOldStudents) oldStudents else emptyList())
-            .filter { it.className == sourceClass && (sourceSection == "All" || it.section == sourceSection) }
+            .filter { it.className == sourceClass && (sourceSection == "All" || it.section == sourceSection) && (!teacherMode || it.section == assignedSection) }
     }
     val targetClass = (sourceClass.toIntOrNull()?.plus(1))?.toString() ?: sourceClass
     val targetYear = (currentYear + 1).toString()
@@ -839,8 +845,10 @@ private fun StudentPromotionScreen(repository: SchoolRepository) {
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.weight(1f)) { DropdownField("Current class", sourceClass, classOptions.ifEmpty { listOf("6") }) { sourceClass = it; selectedIds = emptySet() } }
-            Box(Modifier.weight(1f)) { DropdownField("Section", sourceSection, sectionOptions) { sourceSection = it; selectedIds = emptySet() } }
+            if (!teacherMode) Box(Modifier.weight(1f)) { DropdownField("Current class", sourceClass, classOptions.ifEmpty { listOf("6") }) { sourceClass = it; selectedIds = emptySet() } }
+            else Box(Modifier.weight(1f)) { Text("Assigned class: $assignedClass", modifier = Modifier.padding(12.dp)) }
+            if (!teacherMode) Box(Modifier.weight(1f)) { DropdownField("Section", sourceSection, sectionOptions) { sourceSection = it; selectedIds = emptySet() } }
+            else Box(Modifier.weight(1f)) { Text("Assigned section: $assignedSection", modifier = Modifier.padding(12.dp)) }
         }
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {
@@ -964,38 +972,90 @@ private fun StudentPromotionScreen(repository: SchoolRepository) {
 @Composable
 private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
     var query by remember { mutableStateOf("") }
+    var classFilter by rememberSaveable { mutableStateOf("All") }
+    var sectionFilter by rememberSaveable { mutableStateOf("All") }
+    var genderFilter by rememberSaveable { mutableStateOf("All") }
+    var religionFilter by rememberSaveable { mutableStateOf("All") }
     val allStudents by repository.students(query).collectAsState(initial = emptyList())
-    val students = if (teacherMode && assignedClass.isNotBlank() && assignedSection.isNotBlank()) allStudents.filter { it.className == assignedClass && it.section == assignedSection } else if (teacherMode) emptyList() else allStudents
-
+    val activeAll by repository.students("").collectAsState(initial = emptyList())
+    val classOptions = listOf("All") + activeAll.map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 })
+    val sectionOptions = listOf("All") + activeAll.filter { classFilter == "All" || it.className == classFilter }.map { it.section }.distinct().sorted()
+    val students = allStudents.filter { student ->
+        (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank() && student.className == assignedClass && student.section == assignedSection)) &&
+        (teacherMode || classFilter == "All" || student.className == classFilter) &&
+        (teacherMode || sectionFilter == "All" || student.section == sectionFilter) &&
+        (teacherMode || genderFilter == "All" || student.gender.equals(genderFilter, true)) &&
+        (teacherMode || religionFilter == "All" || student.religion.equals(religionFilter, true))
+    }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                label = { Text("Search students") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true
-            )
-            if (students.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(if (teacherMode && (assignedClass.isBlank() || assignedSection.isBlank())) "No class/section assigned. Contact the administrator." else if (query.isBlank()) "No students yet." else "No students found.")
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), label = { Text("Search students") }, leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }, singleLine = true)
+            if (!teacherMode) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) { DropdownField("Class", classFilter, classOptions) { classFilter = it; sectionFilter = "All" } }
+                    Box(Modifier.weight(1f)) { DropdownField("Section", sectionFilter, sectionOptions) { sectionFilter = it } }
                 }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) { DropdownField("Gender", genderFilter, listOf("All", "Boy", "Girl")) { genderFilter = it } }
+                    Box(Modifier.weight(1f)) { DropdownField("Religion", religionFilter, listOf("All", "Muslim", "Hindu", "Christian", "Buddhist", "Other")) { religionFilter = it } }
+                }
+            }
+            if (students.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (teacherMode && (assignedClass.isBlank() || assignedSection.isBlank())) "No class/section assigned. Contact the administrator." else if (query.isBlank()) "No students match these filters." else "No students found.") }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(students, key = { it.id }) { student -> StudentCard(student) { onOpen(student.id) } }
                 }
             }
         }
-        if (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank())) {
-            FloatingActionButton(
-                onClick = onAdd,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
-            ) { Icon(Icons.Default.Add, contentDescription = "Add student") }
+        if (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank())) FloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) { Icon(Icons.Default.Add, contentDescription = "Add student") }
+    }
+}
+
+@Composable
+private fun SscStudentsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String) {
+    val allSsc by repository.sscStudents().collectAsState(initial = emptyList())
+    val active by repository.students("").collectAsState(initial = emptyList())
+    val context = LocalContext.current
+    val currentYear = remember { LocalDate.now().year }
+    var chosenYear by rememberSaveable { mutableStateOf((currentYear + 1).toString()) }
+    var classFilter by rememberSaveable { mutableStateOf("10") }
+    var sectionFilter by rememberSaveable { mutableStateOf("All") }
+    var statusMessage by remember { mutableStateOf("") }
+    var busyId by remember { mutableStateOf<Long?>(null) }
+    val eligible = active.filter { it.className == "10" && (!teacherMode || (assignedClass == "10" && it.section == assignedSection)) }
+    val visible = if (teacherMode) eligible else eligible.filter { sectionFilter == "All" || it.section == sectionFilter }
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("SSC Students", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Class 10 students can be assigned to an SSC exam year without changing their class, roll, permanent ID, or previous records.", style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { DropdownField("SSC exam year", chosenYear, (currentYear..currentYear + 5).map { it.toString() }) { chosenYear = it } }
+            if (!teacherMode) Box(Modifier.weight(1f)) { DropdownField("Section", sectionFilter, listOf("All") + eligible.map { it.section }.distinct().sorted()) { sectionFilter = it } }
+        }
+        Button(onClick = {
+            busyId = -1L; statusMessage = ""
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                try { visible.forEach { repository.assignSscYear(it.id, chosenYear) }; statusMessage = "Assigned ${visible.size} students to SSC-$chosenYear. Sync queued." }
+                catch (e: Exception) { statusMessage = e.message ?: "Could not assign SSC year." }
+                finally { busyId = null }
+            }
+        }, enabled = visible.isNotEmpty() && busyId == null, modifier = Modifier.fillMaxWidth()) { Text(if (busyId != null) "Saving…" else "Assign all visible to SSC-$chosenYear") }
+        if (statusMessage.isNotBlank()) Text(statusMessage, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 6.dp))
+        Text("Assigned SSC batches", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+        if (allSsc.isEmpty()) Text("No students assigned to an SSC year yet.") else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(allSsc.filter { !teacherMode || (it.className == assignedClass && it.section == assignedSection) }, key = { it.id }) { student ->
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                    Text(student.studentName, fontWeight = FontWeight.SemiBold)
+                    Text("Class ${student.className}-${student.section} • Roll ${student.studentId} • SSC-${student.sscYear}")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { DropdownField("Change SSC year", student.sscYear, (currentYear..currentYear + 8).map { it.toString() }) { newYear ->
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch { runCatching { repository.assignSscYear(student.id, newYear) }.onSuccess { statusMessage = "${student.studentName} assigned to SSC-$newYear. Sync queued." }.onFailure { statusMessage = it.message ?: "Could not update SSC year." } }
+                        } }
+                        TextButton(onClick = { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch { runCatching { repository.assignSscYear(student.id, "") }.onSuccess { statusMessage = "Removed ${student.studentName} from SSC batch." }.onFailure { statusMessage = it.message ?: "Could not remove SSC year." } } }) { Text("Remove") }
+                    }
+                } }
+            }
         }
     }
 }
@@ -1021,6 +1081,7 @@ private fun StudentCard(student: Student, onClick: () -> Unit) {
                 Text(student.studentName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text("ID/Roll: ${student.studentId}")
                 Text("Class: ${student.className} • Section: ${student.section}")
+                if (student.sscYear.isNotBlank()) Text("SSC-${student.sscYear}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                 if (student.gender.isNotBlank()) Text("Gender: ${student.gender}")
                 if (student.religion.isNotBlank()) Text("Religion: ${student.religion}")
                 if (student.fatherName.isNotBlank()) Text("Father: ${student.fatherName}")
@@ -1111,7 +1172,8 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
             address = address.trim(),
             mobileNumber = mobile.trim(),
             academicYear = existing?.academicYear?.ifBlank { LocalDate.now().year.toString() } ?: LocalDate.now().year.toString(),
-            activeStatus = existing?.activeStatus ?: "active"
+            activeStatus = existing?.activeStatus ?: "active",
+            sscYear = existing?.sscYear ?: ""
         )
         scope.launch {
             try {
