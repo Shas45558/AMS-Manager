@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.content.Intent
 import android.graphics.Paint
+import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
@@ -165,7 +166,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("fees", "Fees & Payments", Icons.Default.AccountBalanceWallet, true),
             DrawerItem("notices", "Notices", Icons.Default.Notifications, true),
             DrawerItem("events", "Events", Icons.Default.Event, true),
-            DrawerItem("reports", "Reports", Icons.Default.BarChart, true),
+            DrawerItem("reports", "Reports", Icons.Default.BarChart, false),
             DrawerItem("settings", "Sync", Icons.Default.Cloud, false)
         )
     }
@@ -348,6 +349,11 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                 val id = backStack.arguments?.getLong("id") ?: return@composable
                 AppScaffold("Edit Student", drawerState, scope) {
                     StudentFormScreen(repository, id, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "") { navController.popBackStack() }
+                }
+            }
+            composable("reports") {
+                AppScaffold("Reports", drawerState, scope) {
+                    ReportsScreen(repository, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "")
                 }
             }
             composable("demo/{name}") { backStack ->
@@ -2793,6 +2799,211 @@ private fun MonthlyExamScreen(repository: SchoolRepository, teacherMode: Boolean
         }
         message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp)) }
     }
+}
+
+private val PDF_REPORT_TYPES = listOf(
+    "Exam marksheets", "Attendance reports", "Student lists", "SSC student lists", "Monthly exam reports", "Student report cards"
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val allStudents by repository.students("").collectAsState(initial = emptyList())
+    val sscStudents by repository.sscStudents().collectAsState(initial = emptyList())
+    val activeStudents = (allStudents + sscStudents).distinctBy { it.id }.filter { it.activeStatus == "active" }
+    val availableClasses = (if (teacherMode) listOf(assignedClass) else activeStudents.map { it.className }.distinct().sortedBy { it.toIntOrNull() ?: 999 }).filter { it.isNotBlank() }
+    var reportType by rememberSaveable { mutableStateOf(PDF_REPORT_TYPES.first()) }
+    var className by rememberSaveable { mutableStateOf(if (teacherMode) assignedClass else "6") }
+    var section by rememberSaveable { mutableStateOf(if (teacherMode) assignedSection else "A") }
+    var examType by rememberSaveable { mutableStateOf("Annual") }
+    var month by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var startDate by rememberSaveable { mutableStateOf("${LocalDate.now().year}-01-01") }
+    var endDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
+    var message by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val filtered = activeStudents.filter { (it.sscYear.isBlank() || reportType == "SSC student lists") && (teacherMode || it.className == className) && (teacherMode || it.section == section) && (!teacherMode || (it.className == assignedClass && it.section == assignedSection)) && (reportType != "SSC student lists" || it.sscYear.isNotBlank()) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Professional PDF Reports", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Create print-ready reports with the AMS Manager logo, report title, class details, date range, repeated table headings, page numbers, and signature lines.")
+        DropdownField("Report type", reportType, PDF_REPORT_TYPES) { reportType = it }
+        if (!teacherMode) {
+            DropdownField("Class", className, availableClasses.ifEmpty { listOf("6") }) { className = it }
+            val sections = listOf("A", "B", "C", "D") + activeStudents.filter { it.className == className }.map { it.section }.distinct()
+            DropdownField("Section", section, sections.distinct().sorted()) { section = it }
+        } else Text("Assigned class: $assignedClass • Section: $assignedSection", style = MaterialTheme.typography.bodyMedium)
+        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", examType, listOf("First Term", "Second Term", "Annual")) { examType = it }
+        if (reportType == "Monthly exam reports") OutlinedTextField(value = month, onValueChange = { month = it.take(7) }, label = { Text("Month (YYYY-MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        if (reportType == "Attendance reports") {
+            OutlinedTextField(value = startDate, onValueChange = { startDate = it.take(10) }, label = { Text("Start date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = endDate, onValueChange = { endDate = it.take(10) }, label = { Text("End date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        }
+        Button(enabled = !busy && (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank())), onClick = {
+            scope.launch {
+                busy = true; message = "Preparing PDF…"
+                try {
+                    val rows = mutableListOf<List<String>>()
+                    val title = reportType
+                    val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
+                    val columns: List<String>
+                    val heading = if (reportType == "SSC student lists") "SSC-${selectedStudents.firstOrNull()?.sscYear ?: "Year"}" else "Class $className • Section $section"
+                    when (reportType) {
+                        "Student lists" -> {
+                            columns = listOf("Roll", "Student name", "Father's name", "Gender", "Religion", "Mobile")
+                            selectedStudents.forEach { rows.add(listOf(it.studentId, it.studentName, it.fatherName, it.gender, it.religion, it.mobileNumber)) }
+                        }
+                        "SSC student lists" -> {
+                            columns = listOf("Roll", "Student name", "Section", "SSC year", "Father's name", "Mobile")
+                            selectedStudents.forEach { rows.add(listOf(it.studentId, it.studentName, it.section, it.sscYear, it.fatherName, it.mobileNumber)) }
+                        }
+                        "Attendance reports" -> {
+                            require(runCatching { LocalDate.parse(startDate); LocalDate.parse(endDate); startDate <= endDate }.getOrDefault(false)) { "Enter valid dates in YYYY-MM-DD format, with start date before end date." }
+                            columns = listOf("Roll", "Student name", "Present", "Absent", "Attendance %")
+                            selectedStudents.forEach { st ->
+                                val present = repository.studentPresentCountBetween(st.id, startDate, endDate)
+                                val absent = repository.studentAbsentCountBetween(st.id, startDate, endDate)
+                                val total = present + absent
+                                val percent = if (total == 0) "—" else "${(present * 100.0 / total).toInt()}%"
+                                rows.add(listOf(st.studentId, st.studentName, present.toString(), absent.toString(), percent))
+                            }
+                        }
+                        "Monthly exam reports" -> {
+                            require(runCatching { YearMonth.parse(month) }.isSuccess) { "Enter month as YYYY-MM." }
+                            val exams = repository.monthlyExamsOnce(month).associateBy { it.studentId }
+                            val subjects = examSubjects(className)
+                            columns = listOf("Roll", "Student name") + subjects.map { it.first } + listOf("Total")
+                            selectedStudents.forEach { st ->
+                                val ex = exams[st.id]
+                                val marks = subjects.map { markFor(ex, it.second) }
+                                rows.add(listOf(st.studentId, st.studentName) + marks.map { it?.toString() ?: "—" } + listOf(if (marks.any { it != null }) marks.filterNotNull().sum().toString() else "—"))
+                            }
+                        }
+                        else -> {
+                            val aliases = when (examType) { "First Term" -> listOf("First Term", "1st Term"); "Second Term" -> listOf("Second Term", "2nd Term"); "Annual" -> listOf("Annual", "Annual Exam"); else -> listOf(examType) }
+                            val allMarks = aliases.flatMap { repository.examMarksOnce(it) }.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }.groupBy { it.studentId to it.subjectKey }.mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
+                            val specs = CLASS_6_8_EXAM_SUBJECTS
+                            columns = listOf("Roll", "Student name") + specs.map { it.name } + listOf("Total", "Grade")
+                            selectedStudents.forEach { st ->
+                                val marks = specs.map { spec -> allMarks[st.id to spec.key]?.let { examMarkTotal(it) } }
+                                val total = marks.filterNotNull().sum()
+                                val max = specs.sumOf { it.max }
+                                rows.add(listOf(st.studentId, st.studentName) + marks.map { it?.toString() ?: "—" } + listOf(if (marks.any { it != null }) total.toString() else "—", if (marks.any { it != null }) gradeForExam(total, max) else "—"))
+                            }
+                        }
+                    }
+                    val fileName = "AMS_${reportType.replace(' ', '_')}_${LocalDate.now()}.pdf"
+                    val result = generateProfessionalTablePdf(context, title, heading, columns, rows, fileName, if (reportType == "Exam marksheets" || reportType == "Monthly exam reports") PdfOrientation.LANDSCAPE else PdfOrientation.PORTRAIT)
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, result.uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    context.startActivity(Intent.createChooser(shareIntent, "Share $reportType PDF").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                    message = "PDF saved to Downloads/AMS Manager: ${result.fileName}"
+                } catch (e: Exception) { message = "PDF failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }
+                finally { busy = false }
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Creating PDF…" else "Generate & Share PDF") }
+        if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.primary)
+        Text("Report content is generated from the data currently available on this device. Sync first if you need the latest shared records.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+private fun generateProfessionalTablePdf(
+    context: android.content.Context, title: String, subtitle: String, columns: List<String>, rows: List<List<String>>,
+    fileName: String, orientation: PdfOrientation
+): PdfOutput {
+    val document = PdfDocument()
+    val pageWidth = if (orientation == PdfOrientation.LANDSCAPE) 842 else 595
+    val pageHeight = if (orientation == PdfOrientation.LANDSCAPE) 595 else 842
+    val margin = 28f
+    val black = android.graphics.Color.rgb(35, 48, 65)
+    val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(195, 205, 216); strokeWidth = 0.7f }
+    val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = black; textSize = 17f; typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) }
+    val subtitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = black; textSize = 9f; typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL) }
+    val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = black; textSize = 7.4f; typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) }
+    val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(45, 55, 65); textSize = 7.2f }
+    val smallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.DKGRAY; textSize = 7f }
+    val logo = runCatching { BitmapFactory.decodeResource(context.resources, com.ams.mgr.R.mipmap.ic_launcher) }.getOrNull()
+    val colWidths = run {
+        val available = pageWidth - margin * 2
+        val weights = columns.map { c -> when (c.lowercase()) { "student name" -> 2.3f; "father's name" -> 1.8f; "mobile" -> 1.45f; "roll", "present", "absent", "total", "grade", "section", "gender", "religion", "ssc year" -> 0.9f; else -> 1f } }
+        val total = weights.sum().coerceAtLeast(1f)
+        weights.map { available * it / total }
+    }
+    var pageNo = 0
+    var rowIndex = 0
+    fun startPage(): Pair<PdfDocument.Page, Float> {
+        pageNo++
+        val page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNo).create())
+        val canvas = page.canvas
+        if (logo != null) canvas.drawBitmap(logo, null, android.graphics.RectF(margin, 17f, margin + 35f, 52f), Paint(Paint.ANTI_ALIAS_FLAG))
+        canvas.drawText("AMS Manager", margin + 44f, 31f, titlePaint)
+        canvas.drawText(title, margin + 44f, 46f, subtitlePaint)
+        canvas.drawText(subtitle, margin, 66f, subtitlePaint)
+        canvas.drawText("Generated: ${LocalDate.now()}", pageWidth - 155f, 66f, smallPaint)
+        canvas.drawLine(margin, 76f, pageWidth - margin, 76f, linePaint)
+        var x = margin
+        val y = 83f
+        val h = 25f
+        columns.forEachIndexed { i, name ->
+            val rect = android.graphics.RectF(x, y, x + colWidths[i], y + h)
+            val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(231, 237, 244); style = Paint.Style.FILL }
+            canvas.drawRect(rect, bg); canvas.drawRect(rect, linePaint)
+            canvas.drawText(name.take(22), x + 3f, y + 15f, headPaint)
+            x += colWidths[i]
+        }
+        return page to (y + h)
+    }
+    try {
+        do {
+            val (page, headerBottom) = startPage()
+            val canvas = page.canvas
+            var y = headerBottom
+            val rowHeight = 22f
+            while (rowIndex < rows.size && y + rowHeight <= pageHeight - 38f) {
+                val row = rows[rowIndex]
+                var x = margin
+                columns.forEachIndexed { i, _ ->
+                    val rect = android.graphics.RectF(x, y, x + colWidths[i], y + rowHeight)
+                    canvas.drawRect(rect, linePaint)
+                    val value = row.getOrNull(i).orEmpty()
+                    val maxChars = (colWidths[i] / 4.1f).toInt().coerceAtLeast(3)
+                    canvas.drawText(value.take(maxChars), x + 3f, y + 14f, bodyPaint)
+                    x += colWidths[i]
+                }
+                y += rowHeight
+                rowIndex++
+            }
+            canvas.drawLine(margin, pageHeight - 28f, pageWidth - margin, pageHeight - 28f, linePaint)
+            canvas.drawText("AMS Manager • ${title}", margin, pageHeight - 15f, smallPaint)
+            canvas.drawText("Page $pageNo", pageWidth - margin - 42f, pageHeight - 15f, smallPaint)
+            document.finishPage(page)
+        } while (rowIndex < rows.size)
+        if (rows.isEmpty()) {
+            // The do/while already produced a header-only page for empty reports.
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/AMS Manager")
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: throw java.io.IOException("Unable to create Downloads/AMS Manager file")
+            try {
+                resolver.openOutputStream(uri)?.use { document.writeTo(it) } ?: throw java.io.IOException("Unable to open PDF output stream")
+                resolver.update(uri, android.content.ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+                return PdfOutput(uri, fileName)
+            } catch (e: Exception) { resolver.delete(uri, null, null); throw e }
+        } else {
+            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val directory = File(downloads, "AMS Manager")
+            if (!directory.exists() && !directory.mkdirs()) throw java.io.IOException("Unable to create Downloads/AMS Manager")
+            val file = File(directory, fileName)
+            file.outputStream().use { document.writeTo(it) }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            return PdfOutput(uri, fileName)
+        }
+    } finally { logo?.recycle(); document.close() }
 }
 
 private enum class PdfOrientation(val label: String) { PORTRAIT("Portrait"), LANDSCAPE("Landscape") }
