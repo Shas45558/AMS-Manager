@@ -1710,6 +1710,7 @@ private data class DetailSubjectRow(
 @Composable
 private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val allStudents by repository.students("").collectAsState(initial = emptyList())
     val students = if (teacherMode) allStudents.filter { it.className == assignedClass && it.section == assignedSection } else allStudents
     var examType by rememberSaveable { mutableStateOf("Annual") }
@@ -2218,7 +2219,23 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { selectedResultStudent = null }) { Text("Close") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            try {
+                                val output = generateStudentResultCardPdf(context, student, detail, className, section)
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/pdf"
+                                    putExtra(Intent.EXTRA_STREAM, output.uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share result card PDF").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                                message = "Result card PDF created: ${output.fileName}"
+                            } catch (e: Exception) {
+                                message = "Could not create result card: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                            }
+                        }) { Text("Result Card PDF") }
+                        TextButton(onClick = { selectedResultStudent = null }) { Text("Close") }
+                    }
                 }
             )
         } else {
@@ -3004,6 +3021,129 @@ private fun generateProfessionalTablePdf(
             return PdfOutput(uri, fileName)
         }
     } finally { logo?.recycle(); document.close() }
+}
+
+private fun generateStudentResultCardPdf(
+    context: android.content.Context, student: Student, detail: StudentDetail, className: String, section: String
+): PdfOutput {
+    val doc = PdfDocument()
+    val w = 842; val h = 595; val m = 23f // about 0.8 cm on A4 landscape
+    val black = android.graphics.Color.BLACK
+    val gray = android.graphics.Color.rgb(235, 235, 235)
+    fun paint(size: Float, bold: Boolean = false, fill: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = if (fill) gray else black
+        textSize = size
+        typeface = android.graphics.Typeface.create("serif", if (bold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        style = if (fill) Paint.Style.FILL else Paint.Style.STROKE
+        strokeWidth = .8f
+    }
+    val line = paint(8f); val shade = paint(8f, fill = true)
+    val body = paint(8f, true).apply { style = Paint.Style.FILL }
+    val regular = paint(8f).apply { style = Paint.Style.FILL }
+    val small = paint(6.3f, true).apply { style = Paint.Style.FILL }
+    val page = doc.startPage(PdfDocument.PageInfo.Builder(w, h, 1).create())
+    val c = page.canvas
+    try {
+        c.drawRect(m, m, w-m, h-m, line)
+        val logo = runCatching { BitmapFactory.decodeResource(context.resources, com.ams.mgr.R.mipmap.ic_launcher) }.getOrNull()
+        if (logo != null) { c.drawBitmap(logo, null, android.graphics.RectF(35f, 30f, 99f, 94f), Paint(Paint.ANTI_ALIAS_FLAG)); logo.recycle() }
+        c.drawText("AMTOLI MODEL SCHOOL", 267f, 46f, paint(21f, true).apply { style = Paint.Style.FILL })
+        c.drawText("Shibganj, Bogura  |  EIIN: 137662", 340f, 64f, paint(10f, true).apply { style = Paint.Style.FILL })
+        c.drawText("Knowledge Builds The Future", 650f, 48f, regular)
+        c.drawRect(340f, 78f, 503f, 103f, line)
+        c.drawText("RESULT CARD", 365f, 96f, paint(15f, true).apply { style = Paint.Style.FILL })
+        c.drawLine(m+7, 111f, w-m-7, 111f, line)
+        val left = 29f; val leftW = 203f; val right = 239f; val rightW = 574f; val top = 119f; val bottom = 474f
+        c.drawRoundRect(android.graphics.RectF(left, top, left+leftW, bottom), 4f, 4f, line)
+        c.drawRect(left+5, top+5, left+leftW-5, top+23, shade)
+        c.drawText("STUDENT INFORMATION", left+9, top+17, body)
+        var y = top+39
+        fun label(label: String, value: String) {
+            c.drawText(label, left+9, y, body); c.drawText(":", left+91, y, body)
+            c.drawText(value.take(20), left+99, y, regular); y += 19
+        }
+        label("Student Name", student.studentName)
+        label("Father's Name", student.fatherName)
+        label("Class", className); label("Section", section); label("Roll No", student.studentId)
+        label("Date of Birth", ""); label("Address", student.address)
+        y += 4
+        c.drawRect(left+5, y-12, left+leftW-5, y+5, shade); c.drawText("OTHER INFORMATION", left+9, y, body); y += 21
+        label("Behavior", ""); label("Attendance", "")
+        label("GPA", String.format(java.util.Locale.US, "%.2f", detail.gpa))
+        val overallGrade = when { detail.gpa >= 5 -> "A+"; detail.gpa >= 4 -> "A"; detail.gpa >= 3.5 -> "A-"; detail.gpa >= 3 -> "B"; detail.gpa >= 2 -> "C"; detail.gpa >= 1 -> "D"; else -> "F" }
+        label("Grade", overallGrade)
+        c.drawRoundRect(android.graphics.RectF(right, top, right+rightW, bottom), 4f, 4f, line)
+        c.drawRoundRect(android.graphics.RectF(right+5, top+5, right+rightW-5, top+25), 4f, 4f, shade)
+        c.drawText("Exam Name: ${detail.examType}", right+11, top+18, body)
+        c.drawText("Date: ${LocalDate.now()}", right+rightW-98, top+18, body)
+        val split = (detail.subjectRows.size+1)/2
+        val halves = listOf(detail.subjectRows.take(split), detail.subjectRows.drop(split))
+        val gap = 5f; val tw = (rightW-gap)/2f; val tableTop = top+31; val headerH = 27f
+        val maxRows = halves.maxOf { it.size }.coerceAtLeast(1)
+        val rowH = ((bottom-tableTop-headerH-68f)/maxRows).coerceAtMost(29f)
+        halves.forEachIndexed { tableIndex, rows ->
+            val x0 = right + tableIndex*(tw+gap)
+            val widths = listOf(20f, 73f, 28f, 25f, 27f, 29f, 25f, tw-227f)
+            val headers = listOf("Sl.", "Subject / Paper", "Full", "CQ", "MCQ", "Total", "GPA", "Grade")
+            var x = x0
+            headers.forEachIndexed { i, header ->
+                c.drawRect(x, tableTop, x+widths[i], tableTop+headerH, shade); c.drawRect(x, tableTop, x+widths[i], tableTop+headerH, line)
+                c.drawText(header, x+1.5f, tableTop+16f, small); x += widths[i]
+            }
+            rows.forEachIndexed { index, row ->
+                val ry = tableTop+headerH+index*rowH
+                val pairStart = row.name == "Bangla 1st Paper" || row.name == "English 1st Paper"
+                val pairSecond = row.name == "Bangla 2nd Paper" || row.name == "English 2nd Paper"
+                val pairOther = rows.getOrNull(index+1)
+                val pairGpa = if (pairStart && pairOther != null) gradePointForExam(row.total + pairOther.total, row.max + pairOther.max) else row.gpa
+                val pairGrade = if (pairStart && pairOther != null) gradeForExam(row.total + pairOther.total, row.max + pairOther.max) else when { row.gpa>=5 -> "A+"; row.gpa>=4 -> "A"; row.gpa>=3.5 -> "A-"; row.gpa>=3 -> "B"; row.gpa>=2 -> "C"; row.gpa>=1 -> "D"; else -> "F" }
+                val values = listOf((index+1+tableIndex*split).toString(), row.name.replace(" Paper", ""), row.max.toString(), row.cq, row.mcq, row.total.toString(), String.format(java.util.Locale.US,"%.1f",row.gpa), "")
+                var xx=x0
+                values.forEachIndexed { col, value ->
+                    val shared = col==5 || col==6 || col==7
+                    val isPair = pairStart || pairSecond
+                    val skipCell = isPair && shared && pairSecond
+                    val cellBottom = if (isPair && shared && pairStart) ry+rowH*2 else ry+rowH
+                    if (!skipCell) {
+                        c.drawRect(xx, ry, xx+widths[col], cellBottom, line)
+                        val out = when {
+                            isPair && shared && pairStart && col==5 -> "${row.total+(pairOther?.total ?: 0)}"
+                            isPair && shared && pairStart && col==6 -> String.format(java.util.Locale.US,"%.1f",pairGpa)
+                            isPair && shared && pairStart && col==7 -> pairGrade
+                            col==7 && !isPair -> when { row.gpa>=5 -> "A+"; row.gpa>=4 -> "A"; row.gpa>=3.5 -> "A-"; row.gpa>=3 -> "B"; row.gpa>=2 -> "C"; row.gpa>=1 -> "D"; else -> "F" }
+                            else -> value
+                        }
+                        c.drawText(out.take(12), xx+1.5f, ry+minOf(rowH-3f, 15f), regular)
+                    }
+                    xx += widths[col]
+                }
+            }
+            if (tableIndex==1) {
+                val sy = tableTop+headerH+rows.size*rowH+4f
+                val sb = bottom-7f
+                c.drawRoundRect(android.graphics.RectF(x0,sy,x0+tw,sb),3f,3f,shade); c.drawRoundRect(android.graphics.RectF(x0,sy,x0+tw,sb),3f,3f,line)
+                c.drawText("Total Number:",x0+7,sy+15,body); c.drawText("${detail.examOnlyObtained}",x0+tw-43,sy+15,body)
+                c.drawText("Monthly Evaluation Average:",x0+7,sy+33,body); c.drawText(String.format(java.util.Locale.US,"%.1f",detail.monthlyEquivalent),x0+tw-43,sy+33,body)
+                c.drawText("Grand Total Mark:",x0+7,sy+51,body); c.drawText(String.format(java.util.Locale.US,"%.1f",detail.adjustedObtained),x0+tw-43,sy+51,body)
+            }
+        }
+        val ft = 482f; val fb = h-m-5; val fw=(w-2*m-18)/4
+        listOf("Class teacher's comment","Class teacher's signature","Head teacher's signature","Parent's signature").forEachIndexed { i, labelText ->
+            val x=m+6+i*(fw+6); c.drawRect(x,ft,x+fw,fb,line); c.drawText(labelText,x+7,ft+16,body)
+            if(i==0) repeat(3){ c.drawLine(x+8,ft+34+it*12,x+fw-8,ft+34+it*12,line) } else c.drawLine(x+8,fb-12,x+fw-8,fb-12,line)
+        }
+        doc.finishPage(page)
+        val fileName = "AMS_Result_Card_${student.studentId}_${LocalDate.now()}.pdf"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = android.content.ContentValues().apply { put(MediaStore.Downloads.DISPLAY_NAME,fileName); put(MediaStore.Downloads.MIME_TYPE,"application/pdf"); put(MediaStore.Downloads.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/AMS Manager"); put(MediaStore.Downloads.IS_PENDING,1) }
+            val uri=context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values) ?: throw java.io.IOException("Unable to create result card PDF")
+            try { context.contentResolver.openOutputStream(uri)?.use { doc.writeTo(it) } ?: throw java.io.IOException("Unable to write PDF"); context.contentResolver.update(uri,android.content.ContentValues().apply{put(MediaStore.Downloads.IS_PENDING,0)},null,null); return PdfOutput(uri,fileName) }
+            catch(e:Exception){context.contentResolver.delete(uri,null,null);throw e}
+        } else {
+            val dir=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"AMS Manager"); if(!dir.exists()&&!dir.mkdirs()) throw java.io.IOException("Unable to create downloads folder")
+            val file=File(dir,fileName); file.outputStream().use{doc.writeTo(it)}; return PdfOutput(FileProvider.getUriForFile(context,"${context.packageName}.fileprovider",file),fileName)
+        }
+    } finally { doc.close() }
 }
 
 private enum class PdfOrientation(val label: String) { PORTRAIT("Portrait"), LANDSCAPE("Landscape") }
