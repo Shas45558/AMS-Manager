@@ -3155,16 +3155,9 @@ private fun generateStudentResultCardPdf(
                 box(x0, groupTop, x0+widths[0], groupTop+groupHeight, border)
                 val serial = if (x0 == leftX) groupIndex+1 else firstSerial+groupIndex
                 txt(serial.toString(), x0+7f, groupTop+groupHeight/2f+3f, text)
-                val pairTotal = group.sumOf { it.total }
-                val pairMax = group.sumOf { it.max }
-                val hasAnyMarks = group.any { it.cq != "—" || it.mcq != "—" }
-                val isPair = group.size == 2 && (group.first().name.startsWith("Bangla") || group.first().name.startsWith("English"))
-                val sharedGpa = gradePointForExam(pairTotal, pairMax)
-                val sharedGrade = gradeText(pairTotal, pairMax)
                 group.forEachIndexed { within, row ->
                     val ry = groupTop+within*physicalRowH
                     var x = x0+widths[0]
-                    // Subject name is a separate paper row; show a single combined mark/GPA/grade cell per pair.
                     val subjectLabel = when (row.name) {
                         "Bangla 1st Paper" -> "Bangla (1st Paper)"
                         "Bangla 2nd Paper" -> "Bangla (2nd Paper)"
@@ -3182,8 +3175,10 @@ private fun generateStudentResultCardPdf(
                         "English (2nd Paper)" -> listOf("English", "(2nd Paper)")
                         else -> listOf(subjectLabel)
                     }
-                    if (subjectLines.size == 2) { txt(subjectLines[0], x+7f, ry+physicalRowH/2f-1f, regular, 17); txt(subjectLines[1], x+7f, ry+physicalRowH/2f+9f, regular, 17) }
-                    else txt(subjectLabel, x+7f, ry+physicalRowH/2f+3f, regular, 18)
+                    if (subjectLines.size == 2) {
+                        txt(subjectLines[0], x+7f, ry+physicalRowH/2f-1f, regular, 17)
+                        txt(subjectLines[1], x+7f, ry+physicalRowH/2f+9f, regular, 17)
+                    } else txt(subjectLabel, x+7f, ry+physicalRowH/2f+3f, regular, 18)
                     x += widths[1]
                     val values = listOf(row.max.toString(), row.cq, row.mcq)
                     for (i in values.indices) {
@@ -3191,25 +3186,14 @@ private fun generateStudentResultCardPdf(
                         txt(if (values[i] == "—") "" else values[i], x+5f, ry+physicalRowH/2f+3f, regular, 8)
                         x += widths[i+2]
                     }
-                    val sharedValues = listOf(pairTotal.toString(), String.format(java.util.Locale.US, "%.1f", sharedGpa), sharedGrade)
+                    val hasMarks = row.cq != "—" || row.mcq != "—"
+                    val ownValues = listOf(row.total.toString(), String.format(java.util.Locale.US, "%.1f", row.gpa), gradeText(row.total, row.max))
                     for (i in 0..2) {
                         val col = i+5
-                        val shared = isPair
-                        val drawThis = !shared || within == 0
-                        if (drawThis) {
-                            val cellBottom = if (shared) groupTop+groupHeight else ry+physicalRowH
-                            box(x, if (shared) groupTop else ry, x+widths[col], cellBottom, border)
-                            val out = if (!hasAnyMarks) "" else if (shared) sharedValues[i] else when (i) {
-                                0 -> row.total.toString()
-                                1 -> String.format(java.util.Locale.US, "%.1f", row.gpa)
-                                else -> gradeText(row.total, row.max)
-                            }
-                            txt(out, x+3f, (if (shared) groupTop+groupHeight/2f else ry+physicalRowH/2f)+3f, regular, 8)
-                        }
+                        box(x, ry, x+widths[col], ry+physicalRowH, border)
+                        val out = if (!hasMarks) "" else ownValues[i]
+                        txt(out, x+3f, ry+physicalRowH/2f+3f, regular, 8)
                         x += widths[col]
-                    }
-                    if (isPair && within == 0) {
-                        // Shared cells are drawn once with height spanning both paper rows.
                     }
                 }
                 physicalIndex += group.size
