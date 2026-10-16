@@ -2850,7 +2850,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             val sections = listOf("A", "B", "C", "D") + activeStudents.filter { it.className == className }.map { it.section }.distinct()
             DropdownField("Section", section, sections.distinct().sorted()) { section = it }
         } else Text("Assigned class: $assignedClass • Section: $assignedSection", style = MaterialTheme.typography.bodyMedium)
-        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", examType, listOf("First Term", "Second Term", "Annual")) { examType = it }
+        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", examType, if (reportType == "Student report cards") listOf("First Term", "Second Term") else listOf("First Term", "Second Term", "Annual")) { examType = it }
+        if (reportType == "Student report cards" && className !in listOf("6", "7", "8")) Text("The supplied Amtoli result-card template is currently configured for Classes 6–8 only.", color = MaterialTheme.colorScheme.error)
         if (reportType == "Monthly exam reports") OutlinedTextField(value = month, onValueChange = { month = it.take(7) }, label = { Text("Month (YYYY-MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (reportType == "Attendance reports") {
             OutlinedTextField(value = startDate, onValueChange = { startDate = it.take(10) }, label = { Text("Start date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -2862,6 +2863,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Student report cards") {
+                        require(className in listOf("6", "7", "8")) { "The supplied result-card template is currently for Classes 6, 7 and 8 only." }
+                        require(examType == "First Term" || examType == "Second Term") { "Choose First Term or Second Term." }
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
                         val aliases = when (examType) {
                             "First Term" -> listOf("First Term", "1st Term")
@@ -3293,18 +3296,19 @@ private fun generateBulkResultCardsPdf(
     marks: Map<Pair<Long, String>, ExamMark>
 ): PdfOutput {
     val document = PdfDocument()
-    val width = 842
-    val height = 595
+    // A4 portrait page (595 x 842 PDF points), following the supplied Amtoli DOCX template.
+    val width = 595
+    val height = 842
     val black = android.graphics.Color.BLACK
-    val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = black; style = Paint.Style.STROKE; strokeWidth = 0.7f }
-    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(238, 241, 244); style = Paint.Style.FILL }
+    val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = black; style = Paint.Style.STROKE; strokeWidth = 0.65f }
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(238, 238, 238); style = Paint.Style.FILL }
     fun paint(size: Float, bold: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = black; textSize = size
-        typeface = android.graphics.Typeface.create("sans-serif", if (bold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        typeface = android.graphics.Typeface.create("serif", if (bold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
-    val titlePaint = paint(19f, true)
+    val titlePaint = paint(16f, true)
     val head = paint(8f, true)
-    val normal = paint(7.5f)
+    val normal = paint(7.2f)
     val small = paint(6.6f)
     val specs = CLASS_6_8_EXAM_SUBJECTS
     val maxTotal = specs.sumOf { it.max }
@@ -3315,110 +3319,122 @@ private fun generateBulkResultCardsPdf(
             val c = page.canvas
             fun rect(l: Float, t: Float, r: Float, b: Float, p: Paint = border) = c.drawRect(l, t, r, b, p)
             fun line(x1: Float, y1: Float, x2: Float, y2: Float) = c.drawLine(x1, y1, x2, y2, border)
-            fun txt(value: String, x: Float, y: Float, p: Paint = normal, maxChars: Int = 80) {
+            fun txt(value: String, x: Float, y: Float, p: Paint = normal, maxChars: Int = 90) {
                 c.drawText(value.replace('\n', ' ').take(maxChars), x, y, p)
             }
-            rect(22f, 20f, 820f, 575f)
+            rect(22f, 18f, 573f, 824f)
             val logo = runCatching { BitmapFactory.decodeResource(context.resources, com.ams.mgr.R.drawable.amtoli_school_logo) }.getOrNull()
             if (logo != null) {
-                c.drawBitmap(logo, null, android.graphics.RectF(37f, 28f, 88f, 79f), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                c.drawBitmap(logo, null, android.graphics.RectF(34f, 27f, 82f, 75f), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
                 logo.recycle()
             }
-            txt("AMTOLI MODEL SCHOOL", 255f, 43f, titlePaint, 40)
-            txt("Shibganj, Bogura   |   EIIN: 137662", 300f, 60f, head, 45)
-            line(35f, 88f, 807f, 88f)
-            rect(337f, 91f, 505f, 115f)
-            txt("RESULT CARD", 357f, 107f, paint(14f, true), 20)
-            txt("Exam Name: $examType", 38f, 130f, head, 35)
-            txt("Date: __________________", 675f, 130f, head, 25)
+            txt("AMTOLI MODEL SCHOOL", 145f, 42f, titlePaint, 32)
+            txt("Shibganj, Bogura", 205f, 58f, head, 25)
+            txt("EIIN: 137662", 229f, 72f, head, 20)
+            line(32f, 88f, 563f, 88f)
+            txt("Exam Name: $examType", 35f, 106f, head, 35)
+            txt("Date: ${LocalDate.now()}", 405f, 106f, head, 22)
+            rect(216f, 116f, 379f, 139f)
+            txt("RESULT CARD", 250f, 131f, paint(12f, true), 20)
 
-            // Student and other information boxes follow the supplied DOCX layout.
-            rect(34f, 140f, 286f, 287f)
-            rect(34f, 140f, 286f, 160f, fill)
-            txt("STUDENT DETAILS", 42f, 153f, head, 24)
-            val info = listOf(
-                "Student Name" to student.studentName,
-                "Father's Name" to student.fatherName,
-                "Class" to className,
-                "Section" to section,
-                "Roll No" to student.studentId,
-                "Address" to student.address
+            // Student details and other information mirror the uploaded template.
+            rect(32f, 147f, 303f, 278f)
+            rect(32f, 147f, 303f, 166f, fill)
+            txt("STUDENT DETAILS", 40f, 160f, head, 24)
+            val studentInfo = listOf(
+                "Student Name:" to student.studentName,
+                "Father's Name:" to student.fatherName,
+                "Class:" to className,
+                "Section:" to section,
+                "Roll No:" to student.studentId,
+                "Address:" to student.address
             )
-            info.forEachIndexed { i, pair ->
-                val y = 175f + i * 17f
-                txt("${pair.first}:", 42f, y, head, 18)
-                txt(pair.second.ifBlank { "—" }, 125f, y, normal, 22)
+            studentInfo.forEachIndexed { i, pair ->
+                val y = 182f + i * 15f
+                txt(pair.first, 40f, y, head, 18)
+                txt(pair.second.ifBlank { "" }, 125f, y, normal, 27)
             }
-            rect(34f, 294f, 286f, 421f)
-            rect(34f, 294f, 286f, 314f, fill)
-            txt("OTHER INFORMATION", 42f, 307f, head, 25)
-            listOf("Behavior" to "", "Total Working Days" to "", "Present" to "", "Absent" to "").forEachIndexed { i, pair ->
-                txt("${pair.first}:", 42f, 331f + i * 17f, head, 20)
-                txt("________________", 135f, 331f + i * 17f, normal, 20)
+            rect(311f, 147f, 563f, 278f)
+            rect(311f, 147f, 563f, 166f, fill)
+            txt("OTHER INFORMATION", 319f, 160f, head, 25)
+            val other = listOf(
+                "Behavior:" to "",
+                "Total Working Days:" to "",
+                "Present:" to "",
+                "Absent:" to "",
+                "GPA:" to "",
+                "Grade:" to "",
+                "Next Class Roll Number:" to ""
+            )
+            other.forEachIndexed { i, pair ->
+                val y = 181f + i * 13.5f
+                txt(pair.first, 319f, y, head, 25)
+                txt(pair.second, 423f, y, normal, 18)
             }
 
             val studentMarks = specs.map { spec ->
                 val mark = marks[student.id to spec.key]
-                val total = (mark?.cq ?: 0) + (mark?.mcq ?: 0)
+                val total = if (mark == null) 0 else (mark.cq ?: 0) + (mark.mcq ?: 0)
                 Triple(spec, mark, total)
             }
             val obtained = studentMarks.sumOf { it.third }
-            val gpaSubjects = studentMarks.filter { it.first.countsForGpa }
+            val gpaSubjects = studentMarks.filter { it.first.countsForGpa && it.second != null }
             val failed = gpaSubjects.any { gradeForExam(it.third, it.first.max) == "F" }
             val gpa = if (failed || gpaSubjects.isEmpty()) 0.0 else gpaSubjects.map { gradePointForExam(it.third, it.first.max) }.average()
             val overallGrade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
-            txt("GPA: ${String.format(java.util.Locale.US, "%.2f", gpa)}", 43f, 405f, head)
-            txt("Grade: $overallGrade", 43f, 416f, head)
+            txt("GPA: ${if (gpaSubjects.isEmpty()) "" else String.format(java.util.Locale.US, "%.2f", gpa)}", 319f, 258f, head)
+            txt("Grade: ${if (gpaSubjects.isEmpty()) "" else overallGrade}", 430f, 258f, head)
 
-            val tx = 300f
-            val tw = 506f
-            val top = 140f
-            val rowHeight = 22f
-            val headers = listOf("Sl.", "Subject / Paper", "Full", "CQ", "MCQ", "Total", "Grade")
-            val widths = listOf(27f, 174f, 47f, 53f, 53f, 58f, 94f)
+            txt("SUBJECT / PAPER RESULTS", 32f, 296f, paint(9f, true), 30)
+            val tx = 32f
+            val tableTop = 304f
+            val widths = listOf(27f, 170f, 52f, 58f, 58f, 58f, 108f)
+            val headers = listOf("Sl.", "Subject / Paper", "Full Marks", "CQ", "MCQ", "Total", "Grade")
             var x = tx
-            headers.forEachIndexed { i, h ->
-                rect(x, top, x + widths[i], top + 25f, fill)
-                rect(x, top, x + widths[i], top + 25f)
-                txt(h, x + 4f, top + 16f, head, 18)
+            headers.forEachIndexed { i, label ->
+                rect(x, tableTop, x + widths[i], tableTop + 22f, fill)
+                rect(x, tableTop, x + widths[i], tableTop + 22f)
+                txt(label, x + 3f, tableTop + 14f, head, 15)
                 x += widths[i]
             }
+            val rowHeight = 22f
             studentMarks.forEachIndexed { row, tuple ->
-                val y = top + 25f + row * rowHeight
+                val y = tableTop + 22f + row * rowHeight
                 var xx = tx
                 val spec = tuple.first
                 val mark = tuple.second
                 val total = tuple.third
                 val values = listOf(
                     (row + 1).toString(), spec.name, spec.max.toString(),
-                    mark?.cq?.toString() ?: "", mark?.mcq?.toString() ?: "",
+                    mark?.cq?.toString() ?: "", if (spec.hasMcq) mark?.mcq?.toString() ?: "" else "—",
                     if (mark == null) "" else total.toString(),
                     if (mark == null) "" else gradeForExam(total, spec.max)
                 )
                 values.forEachIndexed { col, value ->
                     rect(xx, y, xx + widths[col], y + rowHeight)
-                    txt(value, xx + 4f, y + 14f, if (col == 1) small else normal, if (col == 1) 29 else 15)
+                    txt(value, xx + 3f, y + 14f, if (col == 1) small else normal, if (col == 1) 28 else 15)
                     xx += widths[col]
                 }
             }
-            val summaryTop = top + 25f + studentMarks.size * rowHeight
-            rect(tx, summaryTop, tx + tw, summaryTop + 52f, fill)
-            rect(tx, summaryTop, tx + tw, summaryTop + 52f)
-            txt("Total Number: $obtained / $maxTotal", tx + 8f, summaryTop + 16f, head, 32)
-            txt("Monthly Evaluation Average: __________________", tx + 8f, summaryTop + 31f, head, 42)
-            txt("Grand Total Mark: $obtained", tx + 8f, summaryTop + 45f, head, 32)
+            val summaryTop = tableTop + 22f + studentMarks.size * rowHeight
+            rect(tx, summaryTop, 563f, summaryTop + 48f, fill)
+            rect(tx, summaryTop, 563f, summaryTop + 48f)
+            txt("Total Number: ${if (studentMarks.any { it.second != null }) obtained.toString() else ""} / $maxTotal", 40f, summaryTop + 15f, head, 34)
+            txt("Monthly Evaluation Average: __________________", 40f, summaryTop + 29f, head, 43)
+            txt("Grand Total Mark: ${if (studentMarks.any { it.second != null }) obtained.toString() else ""}", 40f, summaryTop + 42f, head, 30)
 
-            rect(34f, 432f, 820f, 560f)
-            txt("CLASS TEACHER'S COMMENT:", 43f, 449f, head, 30)
-            line(43f, 475f, 810f, 475f)
-            line(43f, 494f, 810f, 494f)
-            line(43f, 513f, 810f, 513f)
-            txt("Class Teacher's Signature", 73f, 544f, head, 30)
-            txt("Head Teacher's Signature", 355f, 544f, head, 30)
-            txt("Parent's Signature", 650f, 544f, head, 25)
-            line(54f, 530f, 235f, 530f)
-            line(338f, 530f, 520f, 530f)
-            line(632f, 530f, 790f, 530f)
+            val commentTop = summaryTop + 58f
+            rect(32f, commentTop, 563f, 748f)
+            txt("CLASS TEACHER'S COMMENT:", 40f, commentTop + 17f, head, 30)
+            line(40f, commentTop + 42f, 555f, commentTop + 42f)
+            line(40f, commentTop + 61f, 555f, commentTop + 61f)
+            line(40f, commentTop + 80f, 555f, commentTop + 80f)
+            line(47f, 786f, 190f, 786f)
+            line(224f, 786f, 367f, 786f)
+            line(401f, 786f, 548f, 786f)
+            txt("Class Teacher's Signature", 48f, 801f, small, 30)
+            txt("Head Teacher's Signature", 224f, 801f, small, 30)
+            txt("Parent's Signature", 410f, 801f, small, 24)
             document.finishPage(page)
         }
 
