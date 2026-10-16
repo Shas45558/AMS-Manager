@@ -1,0 +1,3 @@
+Build status: NOT VERIFIED
+
+This package includes the Android project source and six editable DOCX result-card template files. No APK is included because the Gradle wrapper JAR is missing and a successful Gradle build has not been completed. Use Android Studio with a working Gradle setup to sync, compile, and test before deployment.
