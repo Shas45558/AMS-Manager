@@ -3109,8 +3109,14 @@ private fun generateStudentResultCardPdf(
         val rightX = leftX+leftTableW+gap
         val leftHeaders = listOf("Sl.", "Subject / Paper", "Full\nMarks", "CQ", "MCQ", "Total", "GPA", "Grade")
         val leftWidths = listOf(22f, 91f, 35f, 30f, 31f, 31f, 29f, 44f)
+        // The right-hand table is only 256 pt wide. Keep every column readable;
+        // the previous final-width expression left the Grade column just 2 pt wide.
         val rightHeaders = leftHeaders
-        val rightWidths = listOf(22f, 79f, 34f, 29f, 31f, 31f, 28f, rightTableW-254f)
+        val rightWidths = listOf(18f, 62f, 30f, 26f, 28f, 30f, 26f, 36f)
+
+        require(leftWidths.size == leftHeaders.size && leftWidths.all { it > 0f })
+        require(rightWidths.size == rightHeaders.size && rightWidths.all { it >= 18f })
+        require(kotlin.math.abs(rightWidths.sum() - rightTableW) < 0.1f)
 
         fun drawHeader(x0: Float, widths: List<Float>, headers: List<String>) {
             var x = x0
