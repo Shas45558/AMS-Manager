@@ -2860,9 +2860,30 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             scope.launch {
                 busy = true; message = "Preparing PDF…"
                 try {
+                    val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
+                    if (reportType == "Student report cards") {
+                        require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
+                        val aliases = when (examType) {
+                            "First Term" -> listOf("First Term", "1st Term")
+                            "Second Term" -> listOf("Second Term", "2nd Term")
+                            else -> listOf("Annual", "Annual Exam")
+                        }
+                        val marks = aliases.flatMap { repository.examMarksOnce(it) }
+                            .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
+                            .groupBy { it.studentId to it.subjectKey }
+                            .mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
+                        val result = generateBulkResultCardsPdf(context, selectedStudents, className, section, examType, marks)
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/pdf"
+                            putExtra(Intent.EXTRA_STREAM, result.uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share result cards PDF").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                        message = "Created ${selectedStudents.size} result card page(s): ${result.fileName}"
+                        return@launch
+                    }
                     val rows = mutableListOf<List<String>>()
                     val title = reportType
-                    val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     val columns: List<String>
                     val heading = if (reportType == "SSC student lists") "SSC-${selectedStudents.firstOrNull()?.sscYear ?: "Year"}" else "Class $className • Section $section"
                     when (reportType) {
@@ -3260,6 +3281,175 @@ private fun generateStudentResultCardPdf(
             return PdfOutput(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file), fileName)
         }
     } finally { doc.close() }
+}
+
+
+private fun generateBulkResultCardsPdf(
+    context: android.content.Context,
+    students: List<Student>,
+    className: String,
+    section: String,
+    examType: String,
+    marks: Map<Pair<Long, String>, ExamMark>
+): PdfOutput {
+    val document = PdfDocument()
+    val width = 842
+    val height = 595
+    val black = android.graphics.Color.BLACK
+    val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = black; style = Paint.Style.STROKE; strokeWidth = 0.7f }
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(238, 241, 244); style = Paint.Style.FILL }
+    fun paint(size: Float, bold: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = black; textSize = size
+        typeface = android.graphics.Typeface.create("sans-serif", if (bold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    }
+    val titlePaint = paint(19f, true)
+    val head = paint(8f, true)
+    val normal = paint(7.5f)
+    val small = paint(6.6f)
+    val specs = CLASS_6_8_EXAM_SUBJECTS
+    val maxTotal = specs.sumOf { it.max }
+    val filename = "AMS_Result_Cards_Class_${className}_${section}_${examType.replace(" ", "_")}_${LocalDate.now()}.pdf"
+    try {
+        students.forEachIndexed { index, student ->
+            val page = document.startPage(PdfDocument.PageInfo.Builder(width, height, index + 1).create())
+            val c = page.canvas
+            fun rect(l: Float, t: Float, r: Float, b: Float, p: Paint = border) = c.drawRect(l, t, r, b, p)
+            fun line(x1: Float, y1: Float, x2: Float, y2: Float) = c.drawLine(x1, y1, x2, y2, border)
+            fun txt(value: String, x: Float, y: Float, p: Paint = normal, maxChars: Int = 80) {
+                c.drawText(value.replace('\n', ' ').take(maxChars), x, y, p)
+            }
+            rect(22f, 20f, 820f, 575f)
+            val logo = runCatching { BitmapFactory.decodeResource(context.resources, com.ams.mgr.R.drawable.amtoli_school_logo) }.getOrNull()
+            if (logo != null) {
+                c.drawBitmap(logo, null, android.graphics.RectF(37f, 28f, 88f, 79f), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                logo.recycle()
+            }
+            txt("AMTOLI MODEL SCHOOL", 255f, 43f, titlePaint, 40)
+            txt("Shibganj, Bogura   |   EIIN: 137662", 300f, 60f, head, 45)
+            line(35f, 88f, 807f, 88f)
+            rect(337f, 91f, 505f, 115f)
+            txt("RESULT CARD", 357f, 107f, paint(14f, true), 20)
+            txt("Exam Name: $examType", 38f, 130f, head, 35)
+            txt("Date: __________________", 675f, 130f, head, 25)
+
+            // Student and other information boxes follow the supplied DOCX layout.
+            rect(34f, 140f, 286f, 287f)
+            rect(34f, 140f, 286f, 160f, fill)
+            txt("STUDENT DETAILS", 42f, 153f, head, 24)
+            val info = listOf(
+                "Student Name" to student.studentName,
+                "Father's Name" to student.fatherName,
+                "Class" to className,
+                "Section" to section,
+                "Roll No" to student.studentId,
+                "Address" to student.address
+            )
+            info.forEachIndexed { i, pair ->
+                val y = 175f + i * 17f
+                txt("${pair.first}:", 42f, y, head, 18)
+                txt(pair.second.ifBlank { "—" }, 125f, y, normal, 22)
+            }
+            rect(34f, 294f, 286f, 421f)
+            rect(34f, 294f, 286f, 314f, fill)
+            txt("OTHER INFORMATION", 42f, 307f, head, 25)
+            listOf("Behavior" to "", "Total Working Days" to "", "Present" to "", "Absent" to "").forEachIndexed { i, pair ->
+                txt("${pair.first}:", 42f, 331f + i * 17f, head, 20)
+                txt("________________", 135f, 331f + i * 17f, normal, 20)
+            }
+
+            val studentMarks = specs.map { spec ->
+                val mark = marks[student.id to spec.key]
+                val total = (mark?.cq ?: 0) + (mark?.mcq ?: 0)
+                Triple(spec, mark, total)
+            }
+            val obtained = studentMarks.sumOf { it.third }
+            val gpaSubjects = studentMarks.filter { it.first.countsForGpa }
+            val failed = gpaSubjects.any { gradeForExam(it.third, it.first.max) == "F" }
+            val gpa = if (failed || gpaSubjects.isEmpty()) 0.0 else gpaSubjects.map { gradePointForExam(it.third, it.first.max) }.average()
+            val overallGrade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
+            txt("GPA: ${String.format(java.util.Locale.US, "%.2f", gpa)}", 43f, 405f, head)
+            txt("Grade: $overallGrade", 43f, 416f, head)
+
+            val tx = 300f
+            val tw = 506f
+            val top = 140f
+            val rowHeight = 22f
+            val headers = listOf("Sl.", "Subject / Paper", "Full", "CQ", "MCQ", "Total", "Grade")
+            val widths = listOf(27f, 174f, 47f, 53f, 53f, 58f, 94f)
+            var x = tx
+            headers.forEachIndexed { i, h ->
+                rect(x, top, x + widths[i], top + 25f, fill)
+                rect(x, top, x + widths[i], top + 25f)
+                txt(h, x + 4f, top + 16f, head, 18)
+                x += widths[i]
+            }
+            studentMarks.forEachIndexed { row, tuple ->
+                val y = top + 25f + row * rowHeight
+                var xx = tx
+                val spec = tuple.first
+                val mark = tuple.second
+                val total = tuple.third
+                val values = listOf(
+                    (row + 1).toString(), spec.name, spec.max.toString(),
+                    mark?.cq?.toString() ?: "", mark?.mcq?.toString() ?: "",
+                    if (mark == null) "" else total.toString(),
+                    if (mark == null) "" else gradeForExam(total, spec.max)
+                )
+                values.forEachIndexed { col, value ->
+                    rect(xx, y, xx + widths[col], y + rowHeight)
+                    txt(value, xx + 4f, y + 14f, if (col == 1) small else normal, if (col == 1) 29 else 15)
+                    xx += widths[col]
+                }
+            }
+            val summaryTop = top + 25f + studentMarks.size * rowHeight
+            rect(tx, summaryTop, tx + tw, summaryTop + 52f, fill)
+            rect(tx, summaryTop, tx + tw, summaryTop + 52f)
+            txt("Total Number: $obtained / $maxTotal", tx + 8f, summaryTop + 16f, head, 32)
+            txt("Monthly Evaluation Average: __________________", tx + 8f, summaryTop + 31f, head, 42)
+            txt("Grand Total Mark: $obtained", tx + 8f, summaryTop + 45f, head, 32)
+
+            rect(34f, 432f, 820f, 560f)
+            txt("CLASS TEACHER'S COMMENT:", 43f, 449f, head, 30)
+            line(43f, 475f, 810f, 475f)
+            line(43f, 494f, 810f, 494f)
+            line(43f, 513f, 810f, 513f)
+            txt("Class Teacher's Signature", 73f, 544f, head, 30)
+            txt("Head Teacher's Signature", 355f, 544f, head, 30)
+            txt("Parent's Signature", 650f, 544f, head, 25)
+            line(54f, 530f, 235f, 530f)
+            line(338f, 530f, 520f, 530f)
+            line(632f, 530f, 790f, 530f)
+            document.finishPage(page)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/AMS Manager")
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw java.io.IOException("Unable to create result cards PDF")
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { document.writeTo(it) }
+                    ?: throw java.io.IOException("Unable to write result cards PDF")
+                context.contentResolver.update(uri, android.content.ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+                return PdfOutput(uri, filename)
+            } catch (e: Exception) {
+                context.contentResolver.delete(uri, null, null)
+                throw e
+            }
+        } else {
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "AMS Manager")
+            if (!dir.exists() && !dir.mkdirs()) throw java.io.IOException("Unable to create downloads folder")
+            val file = File(dir, filename)
+            file.outputStream().use { document.writeTo(it) }
+            return PdfOutput(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file), filename)
+        }
+    } finally {
+        document.close()
+    }
 }
 
 private enum class PdfOrientation(val label: String) { PORTRAIT("Portrait"), LANDSCAPE("Landscape") }
