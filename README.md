@@ -44,3 +44,9 @@ The Exams & Results screen now offers a **Result Card PDF** action in a student'
 - Bangla 1st/2nd and English 1st/2nd remain separate paper rows, each with its own full marks, CQ, and MCQ; each pair shares one Total, GPA, and Grade cell.
 - Keeps the remaining subjects and full marks, the three summary labels below the right-side Oral row, and the four-part comment/signature footer.
 - Unentered subject marks no longer display zero totals or an F grade.
+
+## Offline DOCX result cards
+
+Class 6, 7, and 8 result cards for First Term and Second Term are generated as editable `.docx` files using the supplied `Amtoli_Model_School_Result_Card_Template.docx` copied into Android assets. Generation runs locally on the device; it does not call an online conversion service. Individual cards can be shared from the result dialog. Bulk generation writes one DOCX per student to `Downloads/AMS Manager`.
+
+The template's Word formatting and tables are retained while student/exam fields and marks are inserted. This source change has not been verified with a full Gradle build in this environment because the Gradle wrapper JAR is absent; compile and test it in Android Studio before deployment.

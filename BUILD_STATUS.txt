@@ -1,5 +1,5 @@
 Build status: NOT VERIFIED
 
-This package includes the Android project source and six editable DOCX result-card template files. No APK is included because the Gradle wrapper JAR is missing and a successful Gradle build has not been completed. Use Android Studio with a working Gradle setup to sync, compile, and test before deployment.
+This package contains the Android project source and the original Amtoli Model School DOCX result-card template. No APK is included because the Gradle wrapper JAR is missing and a successful Gradle build could not be run in this environment. Open in Android Studio with a working Gradle setup, sync, compile, and test before deployment.
 
-Result card update: uses only Amtoli_Model_School_Result_Card_Updated_Grade_Scale.docx as the Class 6-8 template reference; portrait A4 PDF, First Term and Second Term only; subject-wise CQ/MCQ/Total/Grade columns; separate page per student.
+Result card update: result cards now export as offline DOCX files using the original Amtoli Model School template for Classes 6-8, First Term and Second Term. Bulk generation saves one DOCX per student under Downloads/AMS Manager. The native PDF result-card generator is no longer used by the result-card buttons.

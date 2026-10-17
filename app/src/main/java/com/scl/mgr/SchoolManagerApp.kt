@@ -16,6 +16,17 @@ import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.OutputKeys
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
+import org.w3c.dom.Element
+import org.w3c.dom.Node
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -2222,18 +2233,18 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             try {
-                                val output = generateStudentResultCardPdf(context, student, detail, className, section)
+                                val output = generateStudentResultCardDocx(context, student, detail, className, section)
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "application/pdf"
+                                    type = DOCX_MIME
                                     putExtra(Intent.EXTRA_STREAM, output.uri)
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share result card PDF").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                                message = "Result card PDF created: ${output.fileName}"
+                                context.startActivity(Intent.createChooser(shareIntent, "Share result card DOCX").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                                message = "Result card DOCX created: ${output.fileName}"
                             } catch (e: Exception) {
                                 message = "Could not create result card: ${e.localizedMessage ?: e.javaClass.simpleName}"
                             }
-                        }) { Text("Result Card PDF") }
+                        }) { Text("Result Card DOCX") }
                         TextButton(onClick = { selectedResultStudent = null }) { Text("Close") }
                     }
                 }
@@ -2842,8 +2853,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
     var busy by remember { mutableStateOf(false) }
     val filtered = activeStudents.filter { (it.sscYear.isBlank() || reportType == "SSC student lists") && (teacherMode || it.className == className) && (teacherMode || it.section == section) && (!teacherMode || (it.className == assignedClass && it.section == assignedSection)) && (reportType != "SSC student lists" || it.sscYear.isNotBlank()) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Professional PDF Reports", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Create print-ready reports with the AMS Manager logo, report title, class details, date range, repeated table headings, page numbers, and signature lines.")
+        Text("Professional Reports", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(if (reportType == "Student report cards") "Generate editable DOCX result cards from the supplied Amtoli Model School Word template. Files are created offline on this device." else "Create print-ready reports with the AMS Manager logo, report title, class details, date range, repeated table headings, page numbers, and signature lines.")
         DropdownField("Report type", reportType, PDF_REPORT_TYPES) { reportType = it }
         if (!teacherMode) {
             DropdownField("Class", className, availableClasses.ifEmpty { listOf("6") }) { className = it }
@@ -2859,7 +2870,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
         }
         Button(enabled = !busy && (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank())), onClick = {
             scope.launch {
-                busy = true; message = "Preparing PDF…"
+                busy = true; message = "Preparing DOCX result cards…"
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Student report cards") {
@@ -2875,14 +2886,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                             .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
                             .groupBy { it.studentId to it.subjectKey }
                             .mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
-                        val result = generateBulkResultCardsPdf(context, selectedStudents, className, section, examType, marks)
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/pdf"
-                            putExtra(Intent.EXTRA_STREAM, result.uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share result cards PDF").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                        message = "Created ${selectedStudents.size} result card page(s): ${result.fileName}"
+                        generateBulkResultCardsDocx(context, selectedStudents, className, section, examType, marks)
+                        message = "Saved ${selectedStudents.size} individual DOCX result cards to Downloads/AMS Manager."
                         return@launch
                     }
                     val rows = mutableListOf<List<String>>()
@@ -3045,6 +3050,213 @@ private fun generateProfessionalTablePdf(
             return PdfOutput(uri, fileName)
         }
     } finally { logo?.recycle(); document.close() }
+}
+
+private const val DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+private const val DOCX_TEMPLATE_ASSET = "Amtoli_Model_School_Result_Card_Template.docx"
+private data class DocxOutput(val uri: Uri, val fileName: String)
+private data class DocxMarkRow(val name: String, val max: Int, val cq: String, val mcq: String, val total: String, val grade: String)
+
+private fun generateStudentResultCardDocx(
+    context: android.content.Context, student: Student, detail: StudentDetail, className: String, section: String
+): DocxOutput {
+    val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+        val aliases = when (spec.key) {
+            "social" -> setOf("Social Sciences", "Social Science")
+            "agriculture" -> setOf("Agriculture", "Agriculture/Higher Math", "Higher Math")
+            else -> setOf(spec.name)
+        }
+        val r = detail.subjectRows.firstOrNull { it.name in aliases }
+        DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max) }.orEmpty())
+    }
+    return writeAmtoliDocx(context, listOf(student to rows), className, section, detail.examType,
+        String.format(java.util.Locale.US, "%.2f", detail.monthlyEquivalent))
+}
+
+private fun generateBulkResultCardsDocx(
+    context: android.content.Context,
+    students: List<Student>,
+    className: String,
+    section: String,
+    examType: String,
+    marks: Map<Pair<Long, String>, ExamMark>
+): DocxOutput {
+    var lastOutput: DocxOutput? = null
+    students.forEach { student ->
+        val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+            val mark = marks[student.id to spec.key]
+            val total = if (mark == null) "" else ((mark.cq ?: 0) + (mark.mcq ?: 0)).toString()
+            DocxMarkRow(spec.name, spec.max, mark?.cq?.toString().orEmpty(), if (spec.hasMcq) mark?.mcq?.toString().orEmpty() else "—", total,
+                if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max))
+        }
+        lastOutput = writeAmtoliDocx(context, listOf(student to rows), className, section, examType)
+    }
+    return lastOutput ?: throw java.io.IOException("No DOCX result cards were created.")
+}
+
+private fun writeAmtoliDocx(
+    context: android.content.Context,
+    studentRows: List<Pair<Student, List<DocxMarkRow>>>,
+    className: String,
+    section: String,
+    examType: String,
+    monthlyEvaluationAverage: String = ""
+): DocxOutput {
+    require(studentRows.isNotEmpty()) { "No students were selected." }
+    val firstStudent = studentRows.first().first
+    val studentSuffix = if (studentRows.size == 1) "_${firstStudent.studentId}_${firstStudent.studentName.replace(Regex("[^A-Za-z0-9_-]"), "_").take(24)}" else "_Batch"
+    val filename = "AMS_Result_Card_Class_${className}_${section}_${examType.replace(" ", "_")}${studentSuffix}_${LocalDate.now()}.docx"
+    val templateBytes = context.assets.open(DOCX_TEMPLATE_ASSET).use { it.readBytes() }
+    val zipIn = ZipInputStream(ByteArrayInputStream(templateBytes))
+    val entries = linkedMapOf<String, ByteArray>()
+    zipIn.use { input ->
+        while (true) {
+            val entry = input.nextEntry ?: break
+            if (!entry.isDirectory) entries[entry.name] = input.readBytes()
+            input.closeEntry()
+        }
+    }
+    val documentXml = entries["word/document.xml"] ?: throw java.io.IOException("The DOCX template is missing document.xml")
+    val factory = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+    val doc = factory.newDocumentBuilder().parse(ByteArrayInputStream(documentXml))
+    val wNs = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    fun children(parent: org.w3c.dom.Node, localName: String): List<Element> {
+        val result = mutableListOf<Element>()
+        var node = parent.firstChild
+        while (node != null) {
+            if (node.nodeType == Node.ELEMENT_NODE && node.localName == localName && node.namespaceURI == wNs) result += node as Element
+            node = node.nextSibling
+        }
+        return result
+    }
+    fun allTables(): List<Element> {
+        val list = doc.getElementsByTagNameNS(wNs, "tbl")
+        return (0 until list.length).map { list.item(it) as Element }
+    }
+    fun cellText(cell: Element): String = cell.getElementsByTagNameNS(wNs, "t").let { nodes -> (0 until nodes.length).joinToString("") { nodes.item(it).textContent } }
+    fun setCell(cell: Element, value: String) {
+        val paragraph = cell.getElementsByTagNameNS(wNs, "p").item(0) as? Element ?: return
+        val pPr = children(paragraph, "pPr").firstOrNull()
+        while (paragraph.firstChild != null) paragraph.removeChild(paragraph.firstChild)
+        if (pPr != null) paragraph.appendChild(pPr)
+        if (value.isNotEmpty()) {
+            val run = doc.createElementNS(wNs, "w:r")
+            val text = doc.createElementNS(wNs, "w:t")
+            text.setAttributeNS("http://www.w3.org/XML/1998/namespace", "xml:space", "preserve")
+            text.textContent = value
+            run.appendChild(text)
+            paragraph.appendChild(run)
+        }
+    }
+    fun rowCells(table: Element, row: Int): List<Element> = children(table, "tr").getOrNull(row)?.let { children(it, "tc") }.orEmpty()
+    val tables = allTables()
+    require(tables.size >= 7) { "The supplied Amtoli DOCX template structure has changed." }
+    val examTable = tables[2]
+    val examCells = rowCells(examTable, 0)
+    if (examCells.isNotEmpty()) setCell(examCells[0], "Exam Name: $examType")
+    if (examCells.size > 1) setCell(examCells[1], "Date: ${LocalDate.now()}")
+
+    val infoTable = tables[3]
+    val student = studentRows.first().first
+    val studentDetails = listOf(
+        "Student Name: ${student.studentName}", "Father’s Name: ${student.fatherName}", "Class: $className",
+        "Section: $section", "Roll No: ${student.studentId}", "Address: ${student.address}"
+    )
+    val firstStudentRows = studentRows.first().second
+    val presentRows = firstStudentRows.filter { it.total.isNotBlank() }
+    val obtained = presentRows.sumOf { it.total.toIntOrNull() ?: 0 }
+    val gpaRows = studentRows.first().second.filter { it.name != "Oral" && it.total.isNotBlank() }
+    val failed = gpaRows.any { it.grade == "F" }
+    val gpa = if (gpaRows.isEmpty() || failed) 0.0 else gpaRows.map { gradePointForExam(it.total.toIntOrNull() ?: 0, it.max) }.average()
+    val overallGrade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
+    val infoRows = children(infoTable, "tr")
+    for (i in 1..6) {
+        val cells = infoRows.getOrNull(i)?.let { children(it, "tc") }.orEmpty()
+        if (cells.isNotEmpty()) setCell(cells[0], studentDetails[i - 1])
+        if (cells.size > 1) {
+            val label = when (i) { 1 -> "Behavior:"; 2 -> "Total Working Days:"; 3 -> "Present:"; 4 -> "Absent:"; 5 -> "GPA:"; else -> "Grade:" }
+            val value = when (i) { 5 -> String.format(java.util.Locale.US, "%.2f", gpa); 6 -> overallGrade; else -> "" }
+            setCell(cells[1], "$label $value")
+        }
+    }
+    val nextRollCells = rowCells(infoTable, 7)
+    if (nextRollCells.size > 1) setCell(nextRollCells[1], "Next Class Roll Number: ")
+
+    val subjectTable = tables[4]
+    val byName = studentRows.first().second.associateBy { it.name }
+    val aliases = mapOf("Social Sciences" to listOf("Social Sciences", "Social Science"), "Social Science" to listOf("Social Sciences", "Social Science"), "Agriculture" to listOf("Agriculture", "Agriculture/Higher Math", "Higher Math"))
+    val specs = CLASS_6_8_EXAM_SUBJECTS
+    specs.forEachIndexed { index, spec ->
+        val targetRow = index + 1
+        val cells = rowCells(subjectTable, targetRow)
+        if (cells.size >= 7) {
+            val row = byName[spec.name] ?: aliases[spec.name]?.firstNotNullOfOrNull { byName[it] }
+            // Subject names and full marks remain as designed in the original template.
+            setCell(cells[3], row?.cq.orEmpty())
+            setCell(cells[4], row?.mcq.orEmpty())
+            setCell(cells[5], row?.total.orEmpty())
+            setCell(cells[6], row?.grade.orEmpty())
+        }
+    }
+    val totalCells = rowCells(subjectTable, 12)
+    if (totalCells.isNotEmpty()) {
+        setCell(totalCells[0], "Total Number:")
+        totalCells.lastOrNull()?.takeIf { it !== totalCells.first() }?.let { setCell(it, if (presentRows.isEmpty()) "" else obtained.toString()) }
+    }
+    val monthlyCells = rowCells(subjectTable, 13)
+    if (monthlyCells.isNotEmpty()) {
+        setCell(monthlyCells[0], "Monthly Evaluation Average:")
+        monthlyCells.lastOrNull()?.takeIf { it !== monthlyCells.first() }?.let { setCell(it, monthlyEvaluationAverage) }
+    }
+    val grandCells = rowCells(subjectTable, 14)
+    if (grandCells.isNotEmpty()) {
+        setCell(grandCells[0], "Grand Total Mark:")
+        grandCells.lastOrNull()?.takeIf { it !== grandCells.first() }?.let { setCell(it, if (presentRows.isEmpty()) "" else obtained.toString()) }
+    }
+
+    // Keep the template's original page layout, styling, logo, grade scale, comments, and signatures.
+    val transformer = TransformerFactory.newInstance().newTransformer().apply {
+        setOutputProperty(OutputKeys.ENCODING, "UTF-8")
+        setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
+    }
+    val xmlOut = ByteArrayOutputStream()
+    transformer.transform(DOMSource(doc), StreamResult(xmlOut))
+    entries["word/document.xml"] = xmlOut.toByteArray()
+
+    val resultZip = ByteArrayOutputStream()
+    ZipOutputStream(resultZip).use { output ->
+        entries.forEach { (name, bytes) ->
+            output.putNextEntry(java.util.zip.ZipEntry(name))
+            output.write(bytes)
+            output.closeEntry()
+        }
+    }
+    val outputBytes = resultZip.toByteArray()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val values = android.content.ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, filename)
+            put(MediaStore.Downloads.MIME_TYPE, DOCX_MIME)
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/AMS Manager")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw java.io.IOException("Unable to create DOCX result card")
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(outputBytes) }
+                ?: throw java.io.IOException("Unable to write DOCX result card")
+            context.contentResolver.update(uri, android.content.ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            return DocxOutput(uri, filename)
+        } catch (e: Exception) {
+            context.contentResolver.delete(uri, null, null)
+            throw e
+        }
+    } else {
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "AMS Manager")
+        if (!dir.exists() && !dir.mkdirs()) throw java.io.IOException("Unable to create downloads folder")
+        val file = File(dir, filename)
+        file.writeBytes(outputBytes)
+        return DocxOutput(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file), filename)
+    }
 }
 
 private fun generateStudentResultCardPdf(
