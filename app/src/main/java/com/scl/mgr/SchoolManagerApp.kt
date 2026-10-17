@@ -13,6 +13,12 @@ import android.content.Intent
 import android.graphics.Paint
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfDocument
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.content.Context
+import android.util.Base64
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import java.io.File
@@ -2233,18 +2239,12 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             try {
-                                val output = generateStudentResultCardDocx(context, student, detail, className, section)
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = DOCX_MIME
-                                    putExtra(Intent.EXTRA_STREAM, output.uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share result card DOCX").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                                message = "Result card DOCX created: ${output.fileName}"
+                                printStudentResultCardHtml(context, student, detail, className, section)
+                                message = "Result card opened in Android print preview. Choose Save as PDF to export it."
                             } catch (e: Exception) {
                                 message = "Could not create result card: ${e.localizedMessage ?: e.javaClass.simpleName}"
                             }
-                        }) { Text("Result Card DOCX") }
+                        }) { Text("Result Card PDF") }
                         TextButton(onClick = { selectedResultStudent = null }) { Text("Close") }
                     }
                 }
@@ -2854,7 +2854,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
     val filtered = activeStudents.filter { (it.sscYear.isBlank() || reportType == "SSC student lists") && (teacherMode || it.className == className) && (teacherMode || it.section == section) && (!teacherMode || (it.className == assignedClass && it.section == assignedSection)) && (reportType != "SSC student lists" || it.sscYear.isNotBlank()) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Professional Reports", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(if (reportType == "Student report cards") "Generate editable DOCX result cards from the supplied Amtoli Model School Word template. Files are created offline on this device." else "Create print-ready reports with the AMS Manager logo, report title, class details, date range, repeated table headings, page numbers, and signature lines.")
+        Text(if (reportType == "Student report cards") "Create result cards from the converted Amtoli Model School HTML template, then save them as PDF using Android print preview. Works offline." else "Create print-ready reports with the AMS Manager logo, report title, class details, date range, repeated table headings, page numbers, and signature lines.")
         DropdownField("Report type", reportType, PDF_REPORT_TYPES) { reportType = it }
         if (!teacherMode) {
             DropdownField("Class", className, availableClasses.ifEmpty { listOf("6") }) { className = it }
@@ -2870,7 +2870,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
         }
         Button(enabled = !busy && (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank())), onClick = {
             scope.launch {
-                busy = true; message = "Preparing DOCX result cards…"
+                busy = true; message = "Preparing result cards…"
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Student report cards") {
@@ -2886,8 +2886,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                             .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
                             .groupBy { it.studentId to it.subjectKey }
                             .mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
-                        generateBulkResultCardsDocx(context, selectedStudents, className, section, examType, marks)
-                        message = "Saved ${selectedStudents.size} individual DOCX result cards to Downloads/AMS Manager."
+                        printBulkResultCardsHtml(context, selectedStudents, className, section, examType, marks)
+                        message = "Opened ${selectedStudents.size} result cards in Android print preview. Choose Save as PDF."
                         return@launch
                     }
                     val rows = mutableListOf<List<String>>()
@@ -3050,6 +3050,99 @@ private fun generateProfessionalTablePdf(
             return PdfOutput(uri, fileName)
         }
     } finally { logo?.recycle(); document.close() }
+}
+
+private const val RESULT_CARD_HTML_ASSET = "amtoli_result_card_template.html"
+
+private fun htmlEscape(value: String): String = value
+    .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    .replace("\"", "&quot;").replace("'", "&#39;")
+
+private fun printStudentResultCardHtml(
+    context: Context, student: Student, detail: StudentDetail, className: String, section: String
+) {
+    val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+        val aliases = when (spec.key) {
+            "social" -> setOf("Social Sciences", "Social Science")
+            "agriculture" -> setOf("Agriculture", "Agriculture/Higher Math", "Higher Math")
+            "bangla1" -> setOf("Bangla 1st Paper", "Bangla (1st Paper)")
+            "bangla2" -> setOf("Bangla 2nd Paper", "Bangla (2nd Paper)")
+            "english1" -> setOf("English 1st Paper", "English (1st Paper)")
+            "english2" -> setOf("English 2nd Paper", "English (2nd Paper)")
+            else -> setOf(spec.name)
+        }
+        val r = detail.subjectRows.firstOrNull { it.name in aliases }
+        DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max) }.orEmpty())
+    }
+    val monthly = String.format(java.util.Locale.US, "%.2f", detail.monthlyEquivalent)
+    printResultCardsHtml(context, "AMS Result Card - ${student.studentName}", listOf(renderAmtoliCardHtml(student, rows, className, section, detail.examType, monthly)))
+}
+
+private fun printBulkResultCardsHtml(
+    context: Context, students: List<Student>, className: String, section: String, examType: String,
+    marks: Map<Pair<Long, String>, ExamMark>
+) {
+    val cards = students.map { student ->
+        val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+            val mark = marks[student.id to spec.key]
+            val total = if (mark == null) "" else ((mark.cq ?: 0) + (mark.mcq ?: 0)).toString()
+            DocxMarkRow(spec.name, spec.max, mark?.cq?.toString().orEmpty(), if (spec.hasMcq) mark?.mcq?.toString().orEmpty() else "—", total,
+                if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max))
+        }
+        renderAmtoliCardHtml(student, rows, className, section, examType, "")
+    }
+    printResultCardsHtml(context, "AMS Result Cards - Class $className Section $section - $examType", cards)
+}
+
+private fun renderAmtoliCardHtml(
+    student: Student, rows: List<DocxMarkRow>, className: String, section: String, examType: String, monthlyAverage: String
+): String {
+    val presentRows = rows.filter { it.total.isNotBlank() }
+    val gpaRows = rows.filter { it.name != "Oral" && it.total.isNotBlank() }
+    val failed = gpaRows.any { it.grade == "F" }
+    val gpa = if (gpaRows.isEmpty() || failed) 0.0 else gpaRows.map { gradePointForExam(it.total.toIntOrNull() ?: 0, it.max) }.average()
+    val grade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
+    val obtained = presentRows.sumOf { it.total.toIntOrNull() ?: 0 }
+    val rowHtml = rows.map { row ->
+        val serial = when (row.name) { "Bangla 1st Paper" -> "1"; "English 1st Paper" -> "2"; "Mathematics" -> "3"; "Social Sciences" -> "4"; "Science" -> "5"; "Religion" -> "6"; "ICT" -> "7"; "Agriculture" -> "8"; "Oral" -> "9"; else -> "" }
+        "<tr><td>${serial}</td><td>${htmlEscape(row.name)}</td><td>${row.max}</td><td>${htmlEscape(row.cq)}</td><td>${htmlEscape(row.mcq)}</td><td>${htmlEscape(row.total)}</td><td>${htmlEscape(row.grade)}</td></tr>"
+    }.joinToString("")
+    return """<section class="card">
+      <header class="header"><img class="logo" src="amtoli_school_logo.png" alt="School logo"><div class="school"><h1>AMTOLI MODEL SCHOOL</h1><p>Shibganj, Bogura</p><p>EIIN: 137662</p></div>
+      <table class="scale"><tr><th>Grade</th><th>GPA</th><th>Marks (%)</th></tr><tr><td>A+</td><td>5.00</td><td>100–80</td></tr><tr><td>A</td><td>4.00</td><td>79–70</td></tr><tr><td>A-</td><td>3.50</td><td>69–60</td></tr><tr><td>B</td><td>3.00</td><td>59–50</td></tr><tr><td>C</td><td>2.00</td><td>49–40</td></tr><tr><td>D</td><td>1.00</td><td>39–33</td></tr><tr><td>F</td><td>0.00</td><td>32–0</td></tr></table></header>
+      <div class="title">RESULT CARD</div><div class="examline"><span><b>Exam Name:</b> ${htmlEscape(examType)}</span><span><b>Date:</b> ${LocalDate.now()}</span></div>
+      <table class="info"><tr><th>STUDENT DETAILS</th><th>OTHER INFORMATION</th></tr>
+      <tr><td>Student Name: ${htmlEscape(student.studentName)}</td><td>Behavior:</td></tr><tr><td>Father’s Name: ${htmlEscape(student.fatherName)}</td><td>Total Working Days:</td></tr>
+      <tr><td>Class: ${htmlEscape(className)}</td><td>Present:</td></tr><tr><td>Section: ${htmlEscape(section)}</td><td>Absent:</td></tr>
+      <tr><td>Roll No: ${htmlEscape(student.studentId)}</td><td>GPA: ${String.format(java.util.Locale.US, "%.2f", gpa)}</td></tr><tr><td>Address: ${htmlEscape(student.address)}</td><td>Grade: $grade</td></tr><tr><td></td><td>Next Class Roll Number:</td></tr></table>
+      <div class="section-title">SUBJECT / PAPER RESULTS</div><table class="marks"><thead><tr><th>Sl.</th><th>Subject / Paper</th><th>Full Marks</th><th>CQ</th><th>MCQ</th><th>Total</th><th>Grade</th></tr></thead><tbody>$rowHtml
+      <tr class="summary"><td colspan="2">Total Number:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
+      <tr class="summary"><td colspan="2">Monthly Evaluation Average:</td><td colspan="5">${htmlEscape(monthlyAverage)}</td></tr>
+      <tr class="summary"><td colspan="2">Grand Total Mark:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr></tbody></table>
+      <div class="comment"><b>CLASS TEACHER’S COMMENT:</b></div><div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div><div class="signature">Parent’s Signature</div></div>
+    </section>"""
+}
+
+private fun printResultCardsHtml(context: Context, jobName: String, cards: List<String>) {
+    val base = context.assets.open(RESULT_CARD_HTML_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    val html = base.replace("{{CARDS}}", cards.joinToString("\n"))
+    val webView = WebView(context)
+    webView.settings.javaScriptEnabled = false
+    webView.settings.defaultTextEncodingName = "UTF-8"
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String?) {
+            super.onPageFinished(view, url)
+            val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+            val adapter = view.createPrintDocumentAdapter(jobName.take(80))
+            val attributes = PrintAttributes.Builder()
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                .setResolution(PrintAttributes.Resolution("ams_pdf", "AMS PDF", 300, 300))
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                .build()
+            printManager.print(jobName.take(80), adapter, attributes)
+        }
+    }
+    webView.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
 }
 
 private const val DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

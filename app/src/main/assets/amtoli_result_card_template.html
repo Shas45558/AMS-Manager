@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amtoli Model School Result Card</title>
+<style>
+@page { size: A4 portrait; margin: 8mm; }
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; font-family: Arial, "Noto Sans Bengali", sans-serif; color:#111; }
+body { font-size: 9pt; }
+.card { width:100%; page-break-after:always; break-after:page; padding:0; }
+.card:last-child { page-break-after:auto; break-after:auto; }
+.header { display:grid; grid-template-columns:22mm 1fr 40mm; align-items:center; gap:3mm; border-bottom:1px solid #222; padding-bottom:2mm; }
+.logo { width:20mm; height:20mm; object-fit:contain; }
+.school { text-align:center; }
+.school h1 { font-size:16pt; margin:0 0 1mm; letter-spacing:.3px; }
+.school p { margin:0.5mm 0; font-size:9pt; }
+.scale { border-collapse:collapse; width:100%; font-size:7pt; }
+.scale th,.scale td { border:1px solid #444; padding:1px 2px; text-align:center; }
+.title { text-align:center; font-size:13pt; font-weight:bold; margin:2mm 0; }
+.examline { display:flex; justify-content:space-between; border:1px solid #444; padding:2mm; margin-bottom:2mm; }
+.info { width:100%; border-collapse:collapse; margin-bottom:2mm; }
+.info th { background:#eee; text-align:left; }
+.info th,.info td { border:1px solid #555; padding:1.3mm 2mm; width:50%; }
+.section-title { text-align:center; font-weight:bold; margin:2mm 0 1mm; font-size:10pt; }
+.marks { border-collapse:collapse; width:100%; table-layout:fixed; font-size:8pt; }
+.marks th,.marks td { border:1px solid #444; padding:1.1mm 1mm; text-align:center; overflow-wrap:anywhere; }
+.marks th { background:#eee; font-weight:bold; }
+.marks th:nth-child(1),.marks td:nth-child(1) { width:7%; }
+.marks th:nth-child(2),.marks td:nth-child(2) { width:35%; text-align:left; }
+.marks th:nth-child(3),.marks td:nth-child(3) { width:12%; }
+.marks th:nth-child(4),.marks td:nth-child(4) { width:10%; }
+.marks th:nth-child(5),.marks td:nth-child(5) { width:10%; }
+.marks th:nth-child(6),.marks td:nth-child(6) { width:13%; }
+.marks th:nth-child(7),.marks td:nth-child(7) { width:13%; }
+.summary td:first-child { text-align:left; font-weight:bold; }
+.comment { margin-top:3mm; border:1px solid #555; min-height:12mm; padding:2mm; }
+.signatures { display:grid; grid-template-columns:repeat(3,1fr); gap:8mm; margin-top:12mm; text-align:center; }
+.signature { border-top:1px solid #333; padding-top:1.5mm; }
+.small { font-size:7.5pt; }
+</style></head><body><main id="cards">{{CARDS}}</main></body></html>
