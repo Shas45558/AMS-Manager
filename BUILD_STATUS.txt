@@ -1,5 +1,0 @@
-Build status: NOT VERIFIED
-
-Result cards use an offline HTML template rendered by Android WebView and the native print framework. The result-card page is configured for A4 portrait with a 1.5 cm inset on all four sides and a thin black border. The card content is padded inside the border.
-
-No APK is included because the Gradle wrapper JAR is missing and Gradle is unavailable in this environment. Open in Android Studio with a working Gradle setup, sync, compile, and test before deployment.

@@ -2861,7 +2861,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             val sections = listOf("A", "B", "C", "D") + activeStudents.filter { it.className == className }.map { it.section }.distinct()
             DropdownField("Section", section, sections.distinct().sorted()) { section = it }
         } else Text("Assigned class: $assignedClass • Section: $assignedSection", style = MaterialTheme.typography.bodyMedium)
-        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", examType, if (reportType == "Student report cards") listOf("First Term", "Second Term") else listOf("First Term", "Second Term", "Annual")) { examType = it }
+        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", examType, if (reportType == "Student report cards") listOf("First Term", "Second Term", "Annual") else listOf("First Term", "Second Term", "Annual")) { examType = it }
         if (reportType == "Student report cards" && className !in listOf("6", "7", "8")) Text("The supplied Amtoli result-card template is currently configured for Classes 6–8 only.", color = MaterialTheme.colorScheme.error)
         if (reportType == "Monthly exam reports") OutlinedTextField(value = month, onValueChange = { month = it.take(7) }, label = { Text("Month (YYYY-MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (reportType == "Attendance reports") {
@@ -2875,18 +2875,23 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Student report cards") {
                         require(className in listOf("6", "7", "8")) { "The supplied result-card template is currently for Classes 6, 7 and 8 only." }
-                        require(examType == "First Term" || examType == "Second Term") { "Choose First Term or Second Term." }
+                        require(examType in listOf("First Term", "Second Term", "Annual")) { "Choose First Term, Second Term or Annual." }
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
-                        val aliases = when (examType) {
-                            "First Term" -> listOf("First Term", "1st Term")
-                            "Second Term" -> listOf("Second Term", "2nd Term")
-                            else -> listOf("Annual", "Annual Exam")
+                        fun marksFor(type: String): Map<Pair<Long, String>, ExamMark> {
+                            val aliases = when (type) {
+                                "First Term" -> listOf("First Term", "1st Term")
+                                "Second Term" -> listOf("Second Term", "2nd Term")
+                                else -> listOf("Annual", "Annual Exam")
+                            }
+                            return aliases.flatMap { repository.examMarksOnce(it) }
+                                .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
+                                .groupBy { it.studentId to it.subjectKey }
+                                .mapValues { (_, list) -> list.firstOrNull { it.examType == type } ?: list.first() }
                         }
-                        val marks = aliases.flatMap { repository.examMarksOnce(it) }
-                            .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
-                            .groupBy { it.studentId to it.subjectKey }
-                            .mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
-                        printBulkResultCardsHtml(context, selectedStudents, className, section, examType, marks)
+                        val marks = marksFor(examType)
+                        val firstTermMarks = if (examType == "Annual") marksFor("First Term") else emptyMap()
+                        val secondTermMarks = if (examType == "Annual") marksFor("Second Term") else emptyMap()
+                        printBulkResultCardsHtml(context, selectedStudents, className, section, examType, marks, firstTermMarks, secondTermMarks)
                         message = "Opened ${selectedStudents.size} result cards in Android print preview. Choose Save as PDF."
                         return@launch
                     }
@@ -3075,13 +3080,24 @@ private fun printStudentResultCardHtml(
         DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max) }.orEmpty())
     }
     val monthly = String.format(java.util.Locale.US, "%.2f", detail.monthlyEquivalent)
-    printResultCardsHtml(context, "AMS Result Card - ${student.studentName}", listOf(renderAmtoliCardHtml(student, rows, className, section, detail.examType, monthly)))
+    printResultCardsHtml(context, "AMS Result Card - ${student.studentName}", listOf(renderAmtoliCardHtml(
+        student, rows, className, section, detail.examType, monthly,
+        if (detail.examType == "Annual") detail.firstTotal.toString().removeSuffix(".0") else "",
+        if (detail.examType == "Annual") detail.secondTotal.toString().removeSuffix(".0") else "",
+        if (detail.examType == "Annual" && detail.subjectRows.any { it.total >= 0 }) String.format(java.util.Locale.US, "%.2f", detail.annualAverage) else ""
+    )))
 }
 
 private fun printBulkResultCardsHtml(
     context: Context, students: List<Student>, className: String, section: String, examType: String,
-    marks: Map<Pair<Long, String>, ExamMark>
+    marks: Map<Pair<Long, String>, ExamMark>,
+    firstTermMarks: Map<Pair<Long, String>, ExamMark> = emptyMap(),
+    secondTermMarks: Map<Pair<Long, String>, ExamMark> = emptyMap()
 ) {
+    fun termTotal(studentId: Long, source: Map<Pair<Long, String>, ExamMark>): String {
+        val available = CLASS_6_8_EXAM_SUBJECTS.mapNotNull { spec -> source[studentId to spec.key]?.let { examMarkTotal(it) } }
+        return if (available.isEmpty()) "" else available.sum().toString()
+    }
     val cards = students.map { student ->
         val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
             val mark = marks[student.id to spec.key]
@@ -3089,13 +3105,20 @@ private fun printBulkResultCardsHtml(
             DocxMarkRow(spec.name, spec.max, mark?.cq?.toString().orEmpty(), if (spec.hasMcq) mark?.mcq?.toString().orEmpty() else "—", total,
                 if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max))
         }
-        renderAmtoliCardHtml(student, rows, className, section, examType, "")
+        val firstTotal = termTotal(student.id, firstTermMarks)
+        val secondTotal = termTotal(student.id, secondTermMarks)
+        val annualTotal = rows.filter { it.total.isNotBlank() }.sumOf { it.total.toIntOrNull() ?: 0 }
+        val annualAverage = if (examType == "Annual" && firstTotal.isNotBlank() && secondTotal.isNotBlank() && rows.any { it.total.isNotBlank() }) {
+            String.format(java.util.Locale.US, "%.2f", ((firstTotal.toDoubleOrNull() ?: 0.0) + (secondTotal.toDoubleOrNull() ?: 0.0) + annualTotal) / 3.0)
+        } else ""
+        renderAmtoliCardHtml(student, rows, className, section, examType, "", firstTotal, secondTotal, annualAverage)
     }
     printResultCardsHtml(context, "AMS Result Cards - Class $className Section $section - $examType", cards)
 }
 
 private fun renderAmtoliCardHtml(
-    student: Student, rows: List<DocxMarkRow>, className: String, section: String, examType: String, monthlyAverage: String
+    student: Student, rows: List<DocxMarkRow>, className: String, section: String, examType: String, monthlyAverage: String,
+    firstTermTotal: String = "", secondTermTotal: String = "", grandTotalMarksAverage: String = ""
 ): String {
     val presentRows = rows.filter { it.total.isNotBlank() }
     val gpaRows = rows.filter { it.name != "Oral" && it.total.isNotBlank() }
@@ -3116,9 +3139,11 @@ private fun renderAmtoliCardHtml(
       <tr><td>Class: ${htmlEscape(className)}</td><td>Present:</td></tr><tr><td>Section: ${htmlEscape(section)}</td><td>Absent:</td></tr>
       <tr><td>Roll No: ${htmlEscape(student.studentId)}</td><td>GPA: ${String.format(java.util.Locale.US, "%.2f", gpa)}</td></tr><tr><td>Address: ${htmlEscape(student.address)}</td><td>Grade: $grade</td></tr><tr><td></td><td>Next Class Roll Number:</td></tr></table>
       <div class="section-title">SUBJECT / PAPER RESULTS</div><table class="marks"><thead><tr><th>Sl.</th><th>Subject / Paper</th><th>Full Marks</th><th>CQ</th><th>MCQ</th><th>Total</th><th>Grade</th></tr></thead><tbody>$rowHtml
-      <tr class="summary"><td colspan="2">Total Number:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
+      <tr class="summary"><td colspan="2">Total Marks:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
       <tr class="summary"><td colspan="2">Monthly Evaluation Average:</td><td colspan="5">${htmlEscape(monthlyAverage)}</td></tr>
-      <tr class="summary"><td colspan="2">Grand Total Mark:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr></tbody></table>
+      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">First Term Total Marks:</td><td colspan=\"5\">${htmlEscape(firstTermTotal)}</td></tr><tr class=\"summary\"><td colspan=\"2\">Second Term Total Marks:</td><td colspan=\"5\">${htmlEscape(secondTermTotal)}</td></tr>" else ""}
+      <tr class="summary"><td colspan="2">Grand Total Marks:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
+      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"5\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
       <div class="comment"><b>CLASS TEACHER’S COMMENT:</b></div><div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div><div class="signature">Parent’s Signature</div></div>
     </section>"""
 }
