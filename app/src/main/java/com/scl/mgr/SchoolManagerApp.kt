@@ -1774,8 +1774,12 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             "Annual" -> listOf("Annual", "Annual Exam")
             else -> listOf(type)
         }
-        return aliases.flatMap { repository.examMarksOnce(it) }
-            .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
+        val fetched = mutableListOf<ExamMark>()
+        for (alias in aliases) {
+            val aliasMarks = repository.examMarksOnce(alias)
+            fetched.addAll(aliasMarks)
+        }
+        return fetched.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
             .groupBy { it.studentId to it.subjectKey }
             .map { (_, rows) -> rows.firstOrNull { it.examType == type } ?: rows.first() }
     }
@@ -2877,24 +2881,41 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                         require(className in listOf("6", "7", "8")) { "The supplied result-card template is currently for Classes 6, 7 and 8 only." }
                         require(examType in listOf("First Term", "Second Term", "Annual")) { "Choose First Term, Second Term or Annual." }
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
-                        fun marksFor(type: String): Map<Pair<Long, String>, ExamMark> {
-                            val aliases = when (type) {
-                                "First Term" -> listOf("First Term", "1st Term")
-                                "Second Term" -> listOf("Second Term", "2nd Term")
-                                else -> listOf("Annual", "Annual Exam")
-                            }
-                            val allMarks = mutableListOf<ExamMark>()
-                            for (alias in aliases) {
-                                allMarks.addAll(repository.examMarksOnce(alias))
-                            }
-                            return allMarks
+                        fun normalizeMarks(allMarks: List<ExamMark>, type: String): Map<Pair<Long, String>, ExamMark> =
+                            allMarks
                                 .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
                                 .groupBy { it.studentId to it.subjectKey }
                                 .mapValues { (_, list) -> list.firstOrNull { it.examType == type } ?: list.first() }
+
+                        val aliases = when (examType) {
+                            "First Term" -> listOf("First Term", "1st Term")
+                            "Second Term" -> listOf("Second Term", "2nd Term")
+                            else -> listOf("Annual", "Annual Exam")
                         }
-                        val marks = marksFor(examType)
-                        val firstTermMarks = if (examType == "Annual") marksFor("First Term") else emptyMap()
-                        val secondTermMarks = if (examType == "Annual") marksFor("Second Term") else emptyMap()
+                        val fetchedMarks = mutableListOf<ExamMark>()
+                        for (alias in aliases) {
+                            val aliasMarks = repository.examMarksOnce(alias)
+                            fetchedMarks.addAll(aliasMarks)
+                        }
+                        val marks = normalizeMarks(fetchedMarks, examType)
+
+                        val firstTermMarks = if (examType == "Annual") {
+                            val firstFetched = mutableListOf<ExamMark>()
+                            for (alias in listOf("First Term", "1st Term")) {
+                                val aliasMarks = repository.examMarksOnce(alias)
+                                firstFetched.addAll(aliasMarks)
+                            }
+                            normalizeMarks(firstFetched, "First Term")
+                        } else emptyMap()
+
+                        val secondTermMarks = if (examType == "Annual") {
+                            val secondFetched = mutableListOf<ExamMark>()
+                            for (alias in listOf("Second Term", "2nd Term")) {
+                                val aliasMarks = repository.examMarksOnce(alias)
+                                secondFetched.addAll(aliasMarks)
+                            }
+                            normalizeMarks(secondFetched, "Second Term")
+                        } else emptyMap()
                         printBulkResultCardsHtml(context, selectedStudents, className, section, examType, marks, firstTermMarks, secondTermMarks)
                         message = "Opened ${selectedStudents.size} result cards in Android print preview. Choose Save as PDF."
                         return@launch
@@ -2936,7 +2957,11 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                         }
                         else -> {
                             val aliases = when (examType) { "First Term" -> listOf("First Term", "1st Term"); "Second Term" -> listOf("Second Term", "2nd Term"); "Annual" -> listOf("Annual", "Annual Exam"); else -> listOf(examType) }
-                            val allMarks = aliases.flatMap { repository.examMarksOnce(it) }.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }.groupBy { it.studentId to it.subjectKey }.mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
+                            val fetchedMarks = mutableListOf<ExamMark>()
+                            for (alias in aliases) {
+                                fetchedMarks.addAll(repository.examMarksOnce(alias))
+                            }
+                            val allMarks = fetchedMarks.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }.groupBy { it.studentId to it.subjectKey }.mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
                             val specs = CLASS_6_8_EXAM_SUBJECTS
                             columns = listOf("Roll", "Student name") + specs.map { it.name } + listOf("Total", "Grade")
                             selectedStudents.forEach { st ->
