@@ -2,12 +2,13 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Amtoli Model School Result Card</title>
 <style>
-@page { size: A4 portrait; margin: 8mm; }
+@page { size: A4 portrait; margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin:0; padding:0; font-family: Arial, "Noto Sans Bengali", sans-serif; color:#111; }
 body { font-size: 9pt; }
-.card { width:100%; page-break-after:always; break-after:page; padding:0; }
+.card { width:180mm; min-height:267mm; margin:15mm auto; border:1px solid #111; padding:4mm; page-break-after:always; break-after:page; }
 .card:last-child { page-break-after:auto; break-after:auto; }
+@media print { html, body { width:210mm; margin:0; padding:0; } .card { width:180mm; min-height:267mm; margin:15mm auto; } }
 .header { display:grid; grid-template-columns:22mm 1fr 40mm; align-items:center; gap:3mm; border-bottom:1px solid #222; padding-bottom:2mm; }
 .logo { width:20mm; height:20mm; object-fit:contain; }
 .school { text-align:center; }

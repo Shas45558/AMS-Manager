@@ -1,5 +1,5 @@
 Build status: NOT VERIFIED
 
-This package contains the Android project source and the original Amtoli Model School DOCX result-card template. No APK is included because the Gradle wrapper JAR is missing and a successful Gradle build could not be run in this environment. Open in Android Studio with a working Gradle setup, sync, compile, and test before deployment.
+Result cards use an offline HTML template rendered by Android WebView and the native print framework. The result-card page is configured for A4 portrait with a 1.5 cm inset on all four sides and a thin black border. The card content is padded inside the border.
 
-Result card update: result cards now export as offline DOCX files using the original Amtoli Model School template for Classes 6-8, First Term and Second Term. Bulk generation saves one DOCX per student under Downloads/AMS Manager. The native PDF result-card generator is no longer used by the result-card buttons.
+No APK is included because the Gradle wrapper JAR is missing and Gradle is unavailable in this environment. Open in Android Studio with a working Gradle setup, sync, compile, and test before deployment.
