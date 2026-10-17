@@ -2883,7 +2883,11 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                                 "Second Term" -> listOf("Second Term", "2nd Term")
                                 else -> listOf("Annual", "Annual Exam")
                             }
-                            return aliases.flatMap { repository.examMarksOnce(it) }
+                            val allMarks = mutableListOf<ExamMark>()
+                            for (alias in aliases) {
+                                allMarks.addAll(repository.examMarksOnce(alias))
+                            }
+                            return allMarks
                                 .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
                                 .groupBy { it.studentId to it.subjectKey }
                                 .mapValues { (_, list) -> list.firstOrNull { it.examType == type } ?: list.first() }
