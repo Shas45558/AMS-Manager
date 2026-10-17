@@ -3357,20 +3357,20 @@ private fun generateBulkResultCardsPdf(
             rect(311f, 147f, 563f, 278f)
             rect(311f, 147f, 563f, 166f, fill)
             txt("OTHER INFORMATION", 319f, 160f, head, 25)
+            // Keep these rows separate from GPA/Grade so labels never overlap.
             val other = listOf(
                 "Behavior:" to "",
                 "Total Working Days:" to "",
                 "Present:" to "",
-                "Absent:" to "",
-                "GPA:" to "",
-                "Grade:" to "",
-                "Next Class Roll Number:" to ""
+                "Absent:" to ""
             )
             other.forEachIndexed { i, pair ->
-                val y = 181f + i * 13.5f
+                val y = 181f + i * 15f
                 txt(pair.first, 319f, y, head, 25)
                 txt(pair.second, 423f, y, normal, 18)
             }
+            txt("Next Class Roll Number:", 319f, 246f, head, 27)
+            txt("", 423f, 246f, normal, 18)
 
             val studentMarks = specs.map { spec ->
                 val mark = marks[student.id to spec.key]
@@ -3382,8 +3382,8 @@ private fun generateBulkResultCardsPdf(
             val failed = gpaSubjects.any { gradeForExam(it.third, it.first.max) == "F" }
             val gpa = if (failed || gpaSubjects.isEmpty()) 0.0 else gpaSubjects.map { gradePointForExam(it.third, it.first.max) }.average()
             val overallGrade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
-            txt("GPA: ${if (gpaSubjects.isEmpty()) "" else String.format(java.util.Locale.US, "%.2f", gpa)}", 319f, 258f, head)
-            txt("Grade: ${if (gpaSubjects.isEmpty()) "" else overallGrade}", 430f, 258f, head)
+            txt("GPA: ${if (gpaSubjects.isEmpty()) "" else String.format(java.util.Locale.US, "%.2f", gpa)}", 319f, 265f, head)
+            txt("Grade: ${if (gpaSubjects.isEmpty()) "" else overallGrade}", 430f, 265f, head)
 
             txt("SUBJECT / PAPER RESULTS", 32f, 296f, paint(9f, true), 30)
             val tx = 32f
