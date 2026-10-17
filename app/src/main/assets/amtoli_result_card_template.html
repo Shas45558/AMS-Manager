@@ -33,6 +33,8 @@ body { font-size: 9pt; }
 .marks th:nth-child(6),.marks td:nth-child(6) { width:13%; }
 .marks th:nth-child(7),.marks td:nth-child(7) { width:13%; }
 .summary td:first-child { text-align:left; font-weight:bold; }
+/* Keep printed totals and other numeric summary values centered in their allocated cells. */
+.marks .summary td:not(:first-child) { text-align:center !important; vertical-align:middle; }
 .comment { margin-top:3mm; border:1px solid #555; min-height:12mm; padding:2mm; }
 .signatures { display:grid; grid-template-columns:repeat(3,1fr); gap:8mm; margin-top:12mm; text-align:center; }
 .signature { border-top:1px solid #333; padding-top:1.5mm; }

@@ -1655,6 +1655,29 @@ private val CLASS_6_8_EXAM_SUBJECTS = listOf(
     ExamSubjectSpec("Oral", "oral", 10, hasMcq = false, countsForGpa = false)
 )
 
+// Class 9 uses the same result-card layout, but a separate subject/mark scheme.
+// Bangla and English keep CQ/MCQ stored per paper; their two papers are graded together out of 200.
+private val CLASS_9_EXAM_SUBJECTS = listOf(
+    ExamSubjectSpec("Bangla 1st Paper", "bangla1", 100),
+    ExamSubjectSpec("Bangla 2nd Paper", "bangla2", 100),
+    ExamSubjectSpec("English 1st Paper", "english1", 100),
+    ExamSubjectSpec("English 2nd Paper", "english2", 100),
+    ExamSubjectSpec("Mathematics", "math", 100),
+    ExamSubjectSpec("Social Science", "social", 100),
+    ExamSubjectSpec("Religion", "religion", 100),
+    ExamSubjectSpec("Physics", "physics", 75),
+    ExamSubjectSpec("Chemistry", "chemistry", 75),
+    ExamSubjectSpec("Biology", "biology", 75),
+    ExamSubjectSpec("ICT", "ict", 25),
+    ExamSubjectSpec("Agriculture / Higher Mathematics", "agriculture", 75),
+    ExamSubjectSpec("Oral", "oral", 10, hasMcq = false, countsForGpa = false)
+)
+
+private fun examSubjectsForClass(className: String): List<ExamSubjectSpec> =
+    if (className.trim() == "9") CLASS_9_EXAM_SUBJECTS else CLASS_6_8_EXAM_SUBJECTS
+
+private fun isCombinedPaperKey(key: String): Boolean = key in setOf("bangla1", "bangla2", "english1", "english2")
+
 private fun gradeForExam(total: Int, max: Int): String {
     if (total <= 0) return "F"
     val p = total * 100.0 / max.coerceAtLeast(1)
@@ -1760,7 +1783,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     var detailMonthlyRows by remember { mutableStateOf<List<MonthlyExam>>(emptyList()) }
     var detailByStudent by remember { mutableStateOf<Map<Long, StudentDetail>>(emptyMap()) }
 
-    val subjects = CLASS_6_8_EXAM_SUBJECTS
+    val subjects = examSubjectsForClass(className)
     val subject = subjects[subjectIndex.coerceIn(0, subjects.lastIndex)]
     val classStudents = remember(students, className, section) {
         students.filter { it.className == className && it.section == section }
@@ -1901,7 +1924,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                 val bySubject = termMarks.filter { it.studentId == studentId }.associateBy { it.subjectKey }
                 return subjects.sumOf { spec ->
                     examMarkTotal(bySubject[spec.key]).toDouble() +
-                        if (includeMonthly) monthlyAverageForSubject(studentId, spec.key) else 0.0
+                        if (includeMonthly && className.trim() != "9") monthlyAverageForSubject(studentId, spec.key) else 0.0
                 }
             }
 
@@ -1923,14 +1946,37 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                 // First/Second Term: add the teacher-selected average monthly mark for
                 // each subject to that subject's exam mark. Monthly marks are therefore
                 // part of the term total and the term GPA.
-                val termFail = applicable.any { spec ->
+                val termGpaPoints = if (className.trim() == "9") {
+                    val combined = listOf(
+                        Triple("Bangla", listOf("bangla1", "bangla2"), 200),
+                        Triple("English", listOf("english1", "english2"), 200)
+                    )
+                    val combinedKeys = combined.flatMap { it.second }.toSet()
+                    val ordinary = applicable.filter { it.key !in combinedKeys }.map { spec ->
+                        val adjusted = examMarkTotal(source[spec.key])
+                        gradePointForExam(adjusted, spec.max)
+                    }
+                    val combinedPoints = combined.map { (_, keys, max) ->
+                        gradePointForExam(keys.sumOf { examMarkTotal(source[it]) }, max)
+                    }
+                    ordinary + combinedPoints
+                } else applicable.map { spec ->
+                    val adjusted = examMarkTotal(source[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt()
+                    gradePointForExam(adjusted, spec.max + 20)
+                }
+                val termHasFail = if (className.trim() == "9") {
+                    val combinedFail = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200).any { (keys, max) ->
+                        gradeForExam(keys.sumOf { examMarkTotal(source[it]) }, max) == "F"
+                    }
+                    val ordinaryFail = applicable.filterNot { isCombinedPaperKey(it.key) }.any { spec ->
+                        gradeForExam(examMarkTotal(source[spec.key]), spec.max) == "F"
+                    }
+                    combinedFail || ordinaryFail
+                } else applicable.any { spec ->
                     val adjusted = examMarkTotal(source[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt()
                     gradeForExam(adjusted, spec.max + 20) == "F"
                 }
-                val termGpa = if (termFail) 0.0 else applicable.map { spec ->
-                    val adjusted = examMarkTotal(source[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt()
-                    gradePointForExam(adjusted, spec.max + 20)
-                }.average()
+                val termGpa = if (termHasFail || termGpaPoints.isEmpty()) 0.0 else termGpaPoints.average()
 
                 val examOnly = subjects.sumOf { spec -> examMarkTotal(currentBySubject[spec.key]) }
                 val examMax = subjects.sumOf { it.max }
@@ -1954,12 +2000,25 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     // Annual GPA is still based ONLY on the Annual examination, exactly
                     // like the Annual exam itself; First/Second Term never enter Annual GPA.
                     val annualExam = examTotal(st.id, annual, includeMonthly = true)
-                    val annualFail = applicable.any { spec ->
+                    val annualFail = if (className.trim() == "9") {
+                        val combinedFail = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200).any { (keys, max) ->
+                            gradeForExam(keys.sumOf { examMarkTotal(annualBySubject[it]) }, max) == "F"
+                        }
+                        combinedFail || applicable.filterNot { isCombinedPaperKey(it.key) }.any { spec ->
+                            gradeForExam(examMarkTotal(annualBySubject[spec.key]), spec.max) == "F"
+                        }
+                    } else applicable.any { spec ->
                         gradeForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20) == "F"
                     }
-                    val annualGpa = if (annualFail) 0.0 else applicable
-                        .map { spec -> gradePointForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20) }
-                        .average()
+                    val annualGpaPoints = if (className.trim() == "9") {
+                        val combined = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200)
+                        val combinedKeys = combined.flatMap { it.first }.toSet()
+                        applicable.filterNot { it.key in combinedKeys }.map { spec -> gradePointForExam(examMarkTotal(annualBySubject[spec.key]), spec.max) } +
+                            combined.map { (keys, max) -> gradePointForExam(keys.sumOf { examMarkTotal(annualBySubject[it]) }, max) }
+                    } else applicable.map { spec ->
+                        gradePointForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20)
+                    }
+                    val annualGpa = if (annualFail || annualGpaPoints.isEmpty()) 0.0 else annualGpaPoints.average()
 
                     // Annual final/combined total is the average of: First Term total
                     // (including its selected monthly equivalent), Second Term total
@@ -2866,7 +2925,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             DropdownField("Section", section, sections.distinct().sorted()) { section = it }
         } else Text("Assigned class: $assignedClass • Section: $assignedSection", style = MaterialTheme.typography.bodyMedium)
         if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", examType, if (reportType == "Student report cards") listOf("First Term", "Second Term", "Annual") else listOf("First Term", "Second Term", "Annual")) { examType = it }
-        if (reportType == "Student report cards" && className !in listOf("6", "7", "8")) Text("The supplied Amtoli result-card template is currently configured for Classes 6–8 only.", color = MaterialTheme.colorScheme.error)
+        if (reportType == "Student report cards" && className !in listOf("6", "7", "8", "9")) Text("The Amtoli result-card template is configured for Classes 6–9.", color = MaterialTheme.colorScheme.error)
         if (reportType == "Monthly exam reports") OutlinedTextField(value = month, onValueChange = { month = it.take(7) }, label = { Text("Month (YYYY-MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (reportType == "Attendance reports") {
             OutlinedTextField(value = startDate, onValueChange = { startDate = it.take(10) }, label = { Text("Start date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -2878,7 +2937,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Student report cards") {
-                        require(className in listOf("6", "7", "8")) { "The supplied result-card template is currently for Classes 6, 7 and 8 only." }
+                        require(className in listOf("6", "7", "8", "9")) { "The result-card template is configured for Classes 6, 7, 8 and 9." }
                         require(examType in listOf("First Term", "Second Term", "Annual")) { "Choose First Term, Second Term or Annual." }
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
                         fun normalizeMarks(allMarks: List<ExamMark>, type: String): Map<Pair<Long, String>, ExamMark> =
@@ -2962,7 +3021,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                                 fetchedMarks.addAll(repository.examMarksOnce(alias))
                             }
                             val allMarks = fetchedMarks.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }.groupBy { it.studentId to it.subjectKey }.mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
-                            val specs = CLASS_6_8_EXAM_SUBJECTS
+                            val specs = examSubjectsForClass(className)
                             columns = listOf("Roll", "Student name") + specs.map { it.name } + listOf("Total", "Grade")
                             selectedStudents.forEach { st ->
                                 val marks = specs.map { spec -> allMarks[st.id to spec.key]?.let { examMarkTotal(it) } }
@@ -3095,10 +3154,10 @@ private fun htmlEscape(value: String): String = value
 private fun printStudentResultCardHtml(
     context: Context, student: Student, detail: StudentDetail, className: String, section: String
 ) {
-    val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+    val rows = examSubjectsForClass(className).map { spec ->
         val aliases = when (spec.key) {
             "social" -> setOf("Social Sciences", "Social Science")
-            "agriculture" -> setOf("Agriculture", "Agriculture/Higher Math", "Higher Math")
+            "agriculture" -> setOf("Agriculture", "Agriculture/Higher Math", "Higher Math", "Agriculture / Higher Mathematics")
             "bangla1" -> setOf("Bangla 1st Paper", "Bangla (1st Paper)")
             "bangla2" -> setOf("Bangla 2nd Paper", "Bangla (2nd Paper)")
             "english1" -> setOf("English 1st Paper", "English (1st Paper)")
@@ -3108,9 +3167,10 @@ private fun printStudentResultCardHtml(
         val r = detail.subjectRows.firstOrNull { it.name in aliases }
         DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max) }.orEmpty())
     }
+    val displayRows = applyClass9CombinedPaperGrades(rows, className)
     val monthly = String.format(java.util.Locale.US, "%.2f", detail.monthlyEquivalent)
     printResultCardsHtml(context, "AMS Result Card - ${student.studentName}", listOf(renderAmtoliCardHtml(
-        student, rows, className, section, detail.examType, monthly,
+        student, displayRows, className, section, detail.examType, monthly,
         if (detail.examType == "Annual") detail.firstTotal.toString().removeSuffix(".0") else "",
         if (detail.examType == "Annual") detail.secondTotal.toString().removeSuffix(".0") else "",
         if (detail.examType == "Annual" && detail.subjectRows.any { it.total >= 0 }) String.format(java.util.Locale.US, "%.2f", detail.annualAverage) else ""
@@ -3124,23 +3184,24 @@ private fun printBulkResultCardsHtml(
     secondTermMarks: Map<Pair<Long, String>, ExamMark> = emptyMap()
 ) {
     fun termTotal(studentId: Long, source: Map<Pair<Long, String>, ExamMark>): String {
-        val available = CLASS_6_8_EXAM_SUBJECTS.mapNotNull { spec -> source[studentId to spec.key]?.let { examMarkTotal(it) } }
+        val available = examSubjectsForClass(className).mapNotNull { spec -> source[studentId to spec.key]?.let { examMarkTotal(it) } }
         return if (available.isEmpty()) "" else available.sum().toString()
     }
     val cards = students.map { student ->
-        val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+        val rows = examSubjectsForClass(className).map { spec ->
             val mark = marks[student.id to spec.key]
             val total = if (mark == null) "" else ((mark.cq ?: 0) + (mark.mcq ?: 0)).toString()
             DocxMarkRow(spec.name, spec.max, mark?.cq?.toString().orEmpty(), if (spec.hasMcq) mark?.mcq?.toString().orEmpty() else "—", total,
                 if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max))
         }
+        val displayRows = applyClass9CombinedPaperGrades(rows, className)
         val firstTotal = termTotal(student.id, firstTermMarks)
         val secondTotal = termTotal(student.id, secondTermMarks)
-        val annualTotal = rows.filter { it.total.isNotBlank() }.sumOf { it.total.toIntOrNull() ?: 0 }
+        val annualTotal = displayRows.filter { it.total.isNotBlank() }.sumOf { it.total.toIntOrNull() ?: 0 }
         val annualAverage = if (examType == "Annual" && firstTotal.isNotBlank() && secondTotal.isNotBlank() && rows.any { it.total.isNotBlank() }) {
             String.format(java.util.Locale.US, "%.2f", ((firstTotal.toDoubleOrNull() ?: 0.0) + (secondTotal.toDoubleOrNull() ?: 0.0) + annualTotal) / 3.0)
         } else ""
-        renderAmtoliCardHtml(student, rows, className, section, examType, "", firstTotal, secondTotal, annualAverage)
+        renderAmtoliCardHtml(student, displayRows, className, section, examType, "", firstTotal, secondTotal, annualAverage)
     }
     printResultCardsHtml(context, "AMS Result Cards - Class $className Section $section - $examType", cards)
 }
@@ -3204,13 +3265,43 @@ private const val DOCX_TEMPLATE_ASSET = "Amtoli_Model_School_Result_Card_Templat
 private data class DocxOutput(val uri: Uri, val fileName: String)
 private data class DocxMarkRow(val name: String, val max: Int, val cq: String, val mcq: String, val total: String, val grade: String)
 
+/**
+ * For Class 9, show the individual paper CQ/MCQ values but grade Bangla and English
+ * as combined subjects out of 200. The first-paper row keeps its component marks;
+ * the second-paper row carries the combined total and grade. This is calculated in Kotlin.
+ */
+private fun applyClass9CombinedPaperGrades(rows: List<DocxMarkRow>, className: String): List<DocxMarkRow> {
+    if (className.trim() != "9") return rows
+    val result = rows.toMutableList()
+    listOf(
+        "Bangla 1st Paper" to "Bangla 2nd Paper",
+        "English 1st Paper" to "English 2nd Paper"
+    ).forEach { (firstName, secondName) ->
+        val firstIndex = result.indexOfFirst { it.name == firstName }
+        val secondIndex = result.indexOfFirst { it.name == secondName }
+        if (firstIndex >= 0 && secondIndex >= 0) {
+            val first = result[firstIndex]
+            val second = result[secondIndex]
+            val firstTotal = first.total.toIntOrNull()
+            val secondTotal = second.total.toIntOrNull()
+            if (firstTotal != null && secondTotal != null) {
+                val combined = firstTotal + secondTotal
+                val combinedGrade = gradeForExam(combined, 200)
+                result[firstIndex] = first.copy(total = "", grade = "")
+                result[secondIndex] = second.copy(max = 200, total = combined.toString(), grade = combinedGrade)
+            }
+        }
+    }
+    return result
+}
+
 private fun generateStudentResultCardDocx(
     context: android.content.Context, student: Student, detail: StudentDetail, className: String, section: String
 ): DocxOutput {
-    val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+    val rows = examSubjectsForClass(className).map { spec ->
         val aliases = when (spec.key) {
             "social" -> setOf("Social Sciences", "Social Science")
-            "agriculture" -> setOf("Agriculture", "Agriculture/Higher Math", "Higher Math")
+            "agriculture" -> setOf("Agriculture", "Agriculture/Higher Math", "Higher Math", "Agriculture / Higher Mathematics")
             else -> setOf(spec.name)
         }
         val r = detail.subjectRows.firstOrNull { it.name in aliases }
@@ -3230,7 +3321,7 @@ private fun generateBulkResultCardsDocx(
 ): DocxOutput {
     var lastOutput: DocxOutput? = null
     students.forEach { student ->
-        val rows = CLASS_6_8_EXAM_SUBJECTS.map { spec ->
+        val rows = examSubjectsForClass(className).map { spec ->
             val mark = marks[student.id to spec.key]
             val total = if (mark == null) "" else ((mark.cq ?: 0) + (mark.mcq ?: 0)).toString()
             DocxMarkRow(spec.name, spec.max, mark?.cq?.toString().orEmpty(), if (spec.hasMcq) mark?.mcq?.toString().orEmpty() else "—", total,
@@ -3332,7 +3423,7 @@ private fun writeAmtoliDocx(
     val subjectTable = tables[4]
     val byName = studentRows.first().second.associateBy { it.name }
     val aliases = mapOf("Social Sciences" to listOf("Social Sciences", "Social Science"), "Social Science" to listOf("Social Sciences", "Social Science"), "Agriculture" to listOf("Agriculture", "Agriculture/Higher Math", "Higher Math"))
-    val specs = CLASS_6_8_EXAM_SUBJECTS
+    val specs = examSubjectsForClass(className)
     specs.forEachIndexed { index, spec ->
         val targetRow = index + 1
         val cells = rowCells(subjectTable, targetRow)
@@ -3669,7 +3760,7 @@ private fun generateBulkResultCardsPdf(
     val head = paint(8f, true)
     val normal = paint(7.2f)
     val small = paint(6.6f)
-    val specs = CLASS_6_8_EXAM_SUBJECTS
+    val specs = examSubjectsForClass(className)
     val maxTotal = specs.sumOf { it.max }
     val filename = "AMS_Result_Cards_Class_${className}_${section}_${examType.replace(" ", "_")}_${LocalDate.now()}.pdf"
     try {
