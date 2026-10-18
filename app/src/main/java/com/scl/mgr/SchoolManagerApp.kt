@@ -1673,8 +1673,11 @@ private val CLASS_9_EXAM_SUBJECTS = listOf(
     ExamSubjectSpec("Oral", "oral", 10, hasMcq = false, countsForGpa = false)
 )
 
+private fun isClass9Or10(className: String): Boolean =
+    className.trim().removePrefix("Class ").trim() in setOf("9", "10")
+
 private fun examSubjectsForClass(className: String): List<ExamSubjectSpec> =
-    if (className.trim() == "9") CLASS_9_EXAM_SUBJECTS else CLASS_6_8_EXAM_SUBJECTS
+    if (isClass9Or10(className)) CLASS_9_EXAM_SUBJECTS else CLASS_6_8_EXAM_SUBJECTS
 
 private fun isCombinedPaperKey(key: String): Boolean = key in setOf("bangla1", "bangla2", "english1", "english2")
 
@@ -1946,7 +1949,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                 // First/Second Term: add the teacher-selected average monthly mark for
                 // each subject to that subject's exam mark. Monthly marks are therefore
                 // part of the term total and the term GPA.
-                val termGpaPoints = if (className.trim() == "9") {
+                val termGpaPoints = if (isClass9Or10(className)) {
                     val combined = listOf(
                         Triple("Bangla", listOf("bangla1", "bangla2"), 200),
                         Triple("English", listOf("english1", "english2"), 200)
@@ -1964,7 +1967,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     val adjusted = examMarkTotal(source[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt()
                     gradePointForExam(adjusted, spec.max + 20)
                 }
-                val termHasFail = if (className.trim() == "9") {
+                val termHasFail = if (isClass9Or10(className)) {
                     val combinedFail = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200).any { (keys, max) ->
                         gradeForExam(keys.sumOf { examMarkTotal(source[it]) }, max) == "F"
                     }
@@ -2000,7 +2003,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     // Annual GPA is still based ONLY on the Annual examination, exactly
                     // like the Annual exam itself; First/Second Term never enter Annual GPA.
                     val annualExam = examTotal(st.id, annual, includeMonthly = true)
-                    val annualFail = if (className.trim() == "9") {
+                    val annualFail = if (isClass9Or10(className)) {
                         val combinedFail = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200).any { (keys, max) ->
                             gradeForExam(keys.sumOf { examMarkTotal(annualBySubject[it]) }, max) == "F"
                         }
@@ -2010,7 +2013,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     } else applicable.any { spec ->
                         gradeForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20) == "F"
                     }
-                    val annualGpaPoints = if (className.trim() == "9") {
+                    val annualGpaPoints = if (isClass9Or10(className)) {
                         val combined = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200)
                         val combinedKeys = combined.flatMap { it.first }.toSet()
                         applicable.filterNot { it.key in combinedKeys }.map { spec -> gradePointForExam(examMarkTotal(annualBySubject[spec.key]), spec.max) } +
@@ -3221,10 +3224,10 @@ private fun renderAmtoliCardHtml(
     val rowHtmlBuilder = StringBuilder()
     rows.forEachIndexed { index, row ->
         // Class 9 keeps each paper's own CQ/MCQ row, but merges Total, GPA and Grade vertically across both papers.
-        if (className.trim() == "9" && row.name in combinedSecondNames) {
+        if (isClass9Or10(className) && row.name in combinedSecondNames) {
             rowHtmlBuilder.append("<tr><td>${index + 1}</td><td>${htmlEscape(row.name)}</td><td>${row.max}</td><td>${htmlEscape(row.cq)}</td><td>${htmlEscape(row.mcq)}</td></tr>")
         } else {
-            val pairedSecond = if (className.trim() == "9") combinedFirstToSecond[row.name]?.let { secondName -> rows.firstOrNull { it.name == secondName } } else null
+            val pairedSecond = if (isClass9Or10(className)) combinedFirstToSecond[row.name]?.let { secondName -> rows.firstOrNull { it.name == secondName } } else null
             // Always merge Total/GPA/Grade cells for Class 9 Bangla and English paper pairs,
             // even before marks are entered. Put the combined value in the first row's rowspan cell.
             val isCombinedPair = pairedSecond != null
@@ -3288,7 +3291,7 @@ private data class DocxMarkRow(val name: String, val max: Int, val cq: String, v
  * the second-paper row carries the combined total and grade. This is calculated in Kotlin.
  */
 private fun applyClass9CombinedPaperGrades(rows: List<DocxMarkRow>, className: String): List<DocxMarkRow> {
-    if (className.trim() != "9") return rows
+    if (!isClass9Or10(className)) return rows
     val result = rows.toMutableList()
     listOf(
         "Bangla 1st Paper" to "Bangla 2nd Paper",
