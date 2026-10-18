@@ -3225,7 +3225,9 @@ private fun renderAmtoliCardHtml(
             rowHtmlBuilder.append("<tr><td>${index + 1}</td><td>${htmlEscape(row.name)}</td><td>${row.max}</td><td>${htmlEscape(row.cq)}</td><td>${htmlEscape(row.mcq)}</td></tr>")
         } else {
             val pairedSecond = if (className.trim() == "9") combinedFirstToSecond[row.name]?.let { secondName -> rows.firstOrNull { it.name == secondName } } else null
-            val isCombinedPair = pairedSecond != null && row.total.isBlank() && pairedSecond.total.isNotBlank()
+            // Always merge Total/GPA/Grade cells for Class 9 Bangla and English paper pairs,
+            // even before marks are entered. Put the combined value in the first row's rowspan cell.
+            val isCombinedPair = pairedSecond != null
             val totalValue = if (isCombinedPair) pairedSecond!!.total else row.total
             val maxValue = if (isCombinedPair) 200 else row.max
             val gradeValue = if (isCombinedPair) pairedSecond!!.grade else row.grade
