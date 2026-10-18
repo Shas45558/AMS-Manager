@@ -3216,10 +3216,25 @@ private fun renderAmtoliCardHtml(
     val gpa = if (gpaRows.isEmpty() || failed) 0.0 else gpaRows.map { gradePointForExam(it.total.toIntOrNull() ?: 0, it.max) }.average()
     val grade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
     val obtained = presentRows.sumOf { it.total.toIntOrNull() ?: 0 }
-    val rowHtml = rows.map { row ->
-        val serial = when (row.name) { "Bangla 1st Paper" -> "1"; "English 1st Paper" -> "2"; "Mathematics" -> "3"; "Social Sciences" -> "4"; "Science" -> "5"; "Religion" -> "6"; "ICT" -> "7"; "Agriculture" -> "8"; "Oral" -> "9"; else -> "" }
-        "<tr><td>${serial}</td><td>${htmlEscape(row.name)}</td><td>${row.max}</td><td>${htmlEscape(row.cq)}</td><td>${htmlEscape(row.mcq)}</td><td>${htmlEscape(row.total)}</td><td>${htmlEscape(row.grade)}</td></tr>"
-    }.joinToString("")
+    val combinedSecondNames = setOf("Bangla 2nd Paper", "English 2nd Paper")
+    val combinedFirstToSecond = mapOf("Bangla 1st Paper" to "Bangla 2nd Paper", "English 1st Paper" to "English 2nd Paper")
+    val rowHtmlBuilder = StringBuilder()
+    rows.forEachIndexed { index, row ->
+        // Class 9 keeps each paper's own CQ/MCQ row, but merges Total, GPA and Grade vertically across both papers.
+        if (className.trim() == "9" && row.name in combinedSecondNames) {
+            rowHtmlBuilder.append("<tr><td>${index + 1}</td><td>${htmlEscape(row.name)}</td><td>${row.max}</td><td>${htmlEscape(row.cq)}</td><td>${htmlEscape(row.mcq)}</td></tr>")
+        } else {
+            val pairedSecond = if (className.trim() == "9") combinedFirstToSecond[row.name]?.let { secondName -> rows.firstOrNull { it.name == secondName } } else null
+            val isCombinedPair = pairedSecond != null && row.total.isBlank() && pairedSecond.total.isNotBlank()
+            val totalValue = if (isCombinedPair) pairedSecond!!.total else row.total
+            val maxValue = if (isCombinedPair) 200 else row.max
+            val gradeValue = if (isCombinedPair) pairedSecond!!.grade else row.grade
+            val rowGpa = if (totalValue.isBlank()) "" else String.format(java.util.Locale.US, "%.2f", gradePointForExam(totalValue.toIntOrNull() ?: 0, maxValue))
+            val rowspan = if (isCombinedPair) " rowspan=\"2\"" else ""
+            rowHtmlBuilder.append("<tr><td>${index + 1}</td><td>${htmlEscape(row.name)}</td><td>${row.max}</td><td>${htmlEscape(row.cq)}</td><td>${htmlEscape(row.mcq)}</td><td$rowspan>${htmlEscape(totalValue)}</td><td$rowspan>${rowGpa}</td><td$rowspan>${htmlEscape(gradeValue)}</td></tr>")
+        }
+    }
+    val rowHtml = rowHtmlBuilder.toString()
     return """<section class="card">
       <header class="header"><img class="logo" src="amtoli_school_logo.png" alt="School logo"><div class="school"><h1>AMTOLI MODEL SCHOOL</h1><p>Shibganj, Bogura</p><p>EIIN: 137662</p></div>
       <table class="scale"><tr><th>Grade</th><th>GPA</th><th>Marks (%)</th></tr><tr><td>A+</td><td>5.00</td><td>100–80</td></tr><tr><td>A</td><td>4.00</td><td>79–70</td></tr><tr><td>A-</td><td>3.50</td><td>69–60</td></tr><tr><td>B</td><td>3.00</td><td>59–50</td></tr><tr><td>C</td><td>2.00</td><td>49–40</td></tr><tr><td>D</td><td>1.00</td><td>39–33</td></tr><tr><td>F</td><td>0.00</td><td>32–0</td></tr></table></header>
@@ -3228,11 +3243,11 @@ private fun renderAmtoliCardHtml(
       <tr><td>Student Name: ${htmlEscape(student.studentName)}</td><td>Behavior:</td></tr><tr><td>Father’s Name: ${htmlEscape(student.fatherName)}</td><td>Total Working Days:</td></tr>
       <tr><td>Class: ${htmlEscape(className)}</td><td>Present:</td></tr><tr><td>Section: ${htmlEscape(section)}</td><td>Absent:</td></tr>
       <tr><td>Roll No: ${htmlEscape(student.studentId)}</td><td>GPA: ${String.format(java.util.Locale.US, "%.2f", gpa)}</td></tr><tr><td>Address: ${htmlEscape(student.address)}</td><td>Grade: $grade</td></tr><tr><td></td><td>Next Class Roll Number:</td></tr></table>
-      <div class="section-title">SUBJECT / PAPER RESULTS</div><table class="marks"><thead><tr><th>Sl.</th><th>Subject / Paper</th><th>Full Marks</th><th>CQ</th><th>MCQ</th><th>Total</th><th>Grade</th></tr></thead><tbody>$rowHtml
-      <tr class="summary"><td colspan="2">Total Marks:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
-      <tr class="summary"><td colspan="2">Monthly Evaluation Average:</td><td colspan="5">${htmlEscape(monthlyAverage)}</td></tr>
+      <div class="section-title">SUBJECT / PAPER RESULTS</div><table class="marks"><thead><tr><th>Sl.</th><th>Subject / Paper</th><th>Full Marks</th><th>CQ</th><th>MCQ</th><th>Total</th><th>GPA</th><th>Grade</th></tr></thead><tbody>$rowHtml
+      <tr class="summary"><td colspan="2">Total Marks:</td><td colspan="6">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
+      <tr class="summary"><td colspan="2">Monthly Evaluation Average:</td><td colspan="6">${htmlEscape(monthlyAverage)}</td></tr>
       ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">First Term Total Marks:</td><td colspan=\"5\">${htmlEscape(firstTermTotal)}</td></tr><tr class=\"summary\"><td colspan=\"2\">Second Term Total Marks:</td><td colspan=\"5\">${htmlEscape(secondTermTotal)}</td></tr>" else ""}
-      <tr class="summary"><td colspan="2">Grand Total Marks:</td><td colspan="5">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
+      <tr class="summary"><td colspan="2">Grand Total Marks:</td><td colspan="6">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
       ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"5\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
       <div class="comment"><b>CLASS TEACHER’S COMMENT:</b></div><div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div><div class="signature">Parent’s Signature</div></div>
     </section>"""
