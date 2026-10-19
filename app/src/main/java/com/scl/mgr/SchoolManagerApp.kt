@@ -3251,9 +3251,9 @@ private fun renderAmtoliCardHtml(
       <div class="section-title">SUBJECT / PAPER RESULTS</div><table class="marks"><thead><tr><th>Sl.</th><th>Subject / Paper</th><th>Full Marks</th><th>CQ</th><th>MCQ</th><th>Total</th><th>GPA</th><th>Grade</th></tr></thead><tbody>$rowHtml
       <tr class="summary"><td colspan="2">Total Marks:</td><td colspan="6">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
       <tr class="summary"><td colspan="2">Monthly Evaluation Average:</td><td colspan="6">${htmlEscape(monthlyAverage)}</td></tr>
-      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">First Term Total Marks:</td><td colspan=\"5\">${htmlEscape(firstTermTotal)}</td></tr><tr class=\"summary\"><td colspan=\"2\">Second Term Total Marks:</td><td colspan=\"5\">${htmlEscape(secondTermTotal)}</td></tr>" else ""}
+      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">First Term Total Marks:</td><td colspan=\"6\">${htmlEscape(firstTermTotal)}</td></tr><tr class=\"summary\"><td colspan=\"2\">Second Term Total Marks:</td><td colspan=\"6\">${htmlEscape(secondTermTotal)}</td></tr>" else ""}
       <tr class="summary"><td colspan="2">Grand Total Marks:</td><td colspan="6">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
-      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"5\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
+      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"6\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
       <div class="comment"><b>CLASS TEACHER’S COMMENT:</b></div><div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div><div class="signature">Parent’s Signature</div></div>
     </section>"""
 }
