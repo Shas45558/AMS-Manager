@@ -1683,19 +1683,19 @@ private fun examSubjectsForClass(className: String): List<ExamSubjectSpec> = whe
 }
 
 private fun examOptionsForClass(className: String): List<String> =
-    if (className.trim().removePrefix("Class ").trim() == "10") listOf("First Term", "Pre-Test", "Test Exam")
+    if (className.trim().removePrefix("Class ").trim() == "10") listOf("First Term", "Pre-Test Exam", "Test Exam")
     else listOf("First Term", "Second Term", "Annual")
 
 private fun canonicalExamType(className: String, selected: String): String =
     if (className.trim().removePrefix("Class ").trim() == "10") when (selected) {
-        "Pre-Test" -> "Second Term"
+        "Pre-Test Exam" -> "Second Term"
         "Test Exam" -> "Annual"
         else -> selected
     } else selected
 
 private fun displayExamType(className: String, canonical: String): String =
     if (className.trim().removePrefix("Class ").trim() == "10") when (canonical) {
-        "Second Term" -> "Pre-Test"
+        "Second Term" -> "Pre-Test Exam"
         "Annual" -> "Test Exam"
         else -> canonical
     } else canonical
@@ -1808,6 +1808,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     var detailByStudent by remember { mutableStateOf<Map<Long, StudentDetail>>(emptyMap()) }
 
     val subjects = examSubjectsForClass(className)
+    val class10HasNoMonthlyExam = className.trim().removePrefix("Class ").trim() == "10" && examType in setOf("Second Term", "Annual")
     val subject = subjects[subjectIndex.coerceIn(0, subjects.lastIndex)]
     val classStudents = remember(students, className, section) {
         students.filter { it.className == className && it.section == section }
@@ -1914,6 +1915,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             // 1 selected month -> divide by 1, 2 -> divide by 2, 3 -> divide by 3, etc.
             // A missing mark in a selected month contributes 0; it is NOT removed from the divisor.
             fun monthlyAverageForSubject(studentId: Long, subjectKey: String): Double {
+                if (class10HasNoMonthlyExam) return 0.0
                 val divisor = selectedMonths.size
                 if (divisor == 0) return 0.0
 
@@ -1935,6 +1937,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             }
 
             fun monthlyAverage(studentId: Long): Double {
+                if (class10HasNoMonthlyExam) return 0.0
                 val divisor = selectedMonths.size
                 if (divisor == 0) return 0.0
 
@@ -2172,19 +2175,21 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             }
             Button({ saveAll() }, Modifier.fillMaxWidth(), enabled = classStudents.isNotEmpty()) { Text("Save Marks") }
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Monthly average: ${selectedMonths.size} month(s) selected", fontWeight = FontWeight.Bold)
-                    Text(selectedMonths.joinToString(", ") { displayMonthYear(it) }, style = MaterialTheme.typography.bodySmall)
+            if (!class10HasNoMonthlyExam) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Monthly Average: ${selectedMonths.size} month(s) selected", fontWeight = FontWeight.Bold)
+                        Text(selectedMonths.joinToString(", ") { displayMonthYear(it) }, style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedButton({ showMonths = true }) { Text("Select Months (${selectedMonths.size})") }
                 }
-                OutlinedButton({ showMonths = true }) { Text("Select Months (${selectedMonths.size})") }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Display order:", fontWeight = FontWeight.Medium)
                 FilterChip(selected = resultDisplayOrder == "Roll Number", onClick = { resultDisplayOrder = "Roll Number" }, label = { Text("Roll Number") })
                 FilterChip(selected = resultDisplayOrder == "Rank", onClick = { resultDisplayOrder = "Rank" }, label = { Text("Rank") })
             }
-            Text("Term/Annual total = exam subject marks + selected-month average. Annual GPA uses the Annual exam (including its monthly equivalent); final Annual total and tie-break use the average of the 3 adjusted exam totals.", style = MaterialTheme.typography.bodySmall)
+            if (!class10HasNoMonthlyExam) Text("Term/Annual total = exam subject marks + selected-month average. Annual GPA uses the Annual exam (including its monthly equivalent); final Annual total and tie-break use the average of the 3 adjusted exam totals.", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(6.dp))
             Button({ calculateResults() }, Modifier.fillMaxWidth()) { Text("Calculate / Refresh Results") }
             Spacer(Modifier.height(6.dp))
@@ -2345,7 +2350,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             )
         }
     }
-    if (showExamType) { DropdownDialog("Exam", examOptionsForClass(className), { examType=canonicalExamType(className, it); showExamType=false; resultRows=emptyList() }, { showExamType=false }) }
+    if (showExamType) { DropdownDialog("Exam", examOptionsForClass(className), { examType=canonicalExamType(className, it); showExamType=false; resultRows=emptyList(); if (className.trim().removePrefix("Class ").trim() == "10" && it in setOf("Pre-Test Exam", "Test Exam")) showMonths=false }, { showExamType=false }) }
     if (!teacherMode && showClass) { DropdownDialog("Class", listOf("6","7","8","9","10"), { className=it; subjectIndex=0; if (it == "10" && examType == "Second Term") examType = "Second Term"; showClass=false }, { showClass=false }) }
     if (!teacherMode && showSection) { DropdownDialog("Section", listOf("A","B"), { section=it; showSection=false }, { showSection=false }) }
     if (showSubject) { DropdownDialog("Subject", subjects.map { it.name }, { v -> subjectIndex=subjects.indexOfFirst { it.name==v }.coerceAtLeast(0); showSubject=false }, { showSubject=false }) }
