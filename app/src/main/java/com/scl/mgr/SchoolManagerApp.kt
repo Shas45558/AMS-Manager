@@ -2223,7 +2223,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                                 "ict" -> null; "agri" -> ex?.hMOrAgri; else -> null
                             } }
                             val total = values.filterNotNull().sum()
-                            "<tr><td>${htmlEscape(st.studentId)}</td><td class="name">${htmlEscape(st.studentName)}</td>" +
+                            "<tr><td>${htmlEscape(st.studentId)}</td><td class=\"name\">${htmlEscape(st.studentName)}</td>" +
                                 values.joinToString("") { "<td>${it?.toString() ?: ""}</td>" } + "<td><b>$total</b></td></tr>"
                         }.joinToString("\n")
                         val header = specs.joinToString("") { "<th>${htmlEscape(it.first)}</th>" }
