@@ -1796,6 +1796,8 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     var showSection by remember { mutableStateOf(false) }
     var showSubject by remember { mutableStateOf(false) }
     var showMonths by remember { mutableStateOf(false) }
+    var showReportMonth by remember { mutableStateOf(false) }
+    var reportMonth by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
     var activeStudentId by remember { mutableStateOf<Long?>(null) }
     var activeField by remember { mutableStateOf("cq") }
     var selectedResultStudent by remember { mutableStateOf<Student?>(null) }
@@ -2193,6 +2195,48 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             Spacer(Modifier.height(6.dp))
             Button({ calculateResults() }, Modifier.fillMaxWidth()) { Text("Calculate / Refresh Results") }
             Spacer(Modifier.height(6.dp))
+            OutlinedButton({ showReportMonth = true }, Modifier.fillMaxWidth()) {
+                Text("Monthly Exam Report PDF • ${displayMonthYear(reportMonth)}")
+            }
+            Spacer(Modifier.height(6.dp))
+            Button(onClick = {
+                scope.launch {
+                    try {
+                        val monthlyRows = repository.monthlyExamsOnce(reportMonth)
+                            .filter { row -> classStudents.any { it.id == row.studentId } }
+                            .associateBy { it.studentId }
+                        val isSenior = className.trim().removePrefix("Class ").trim() in setOf("9", "10")
+                        val specs = if (isSenior) listOf(
+                            "Bangla" to "bangla", "English" to "english", "Math" to "math",
+                            "S.Science" to "social", "Religion" to "religion", "Physics" to "physics",
+                            "Chemistry" to "chemistry", "Biology" to "biology", "H.M./Agri." to "agri"
+                        ) else listOf(
+                            "Bangla" to "bangla", "English" to "english", "Math" to "math",
+                            "S.Science" to "social", "Science" to "science", "Religion" to "religion"
+                        )
+                        val rows = classStudents.take(45).map { st ->
+                            val ex = monthlyRows[st.id]
+                            val values = specs.map { (_, key) -> when (key) {
+                                "bangla" -> ex?.bangla; "english" -> ex?.english; "math" -> ex?.math
+                                "social" -> ex?.socialScience; "science" -> ex?.science; "religion" -> ex?.religion
+                                "physics" -> ex?.physics; "chemistry" -> ex?.chemistry; "biology" -> ex?.biology
+                                "ict" -> null; "agri" -> ex?.hMOrAgri; else -> null
+                            } }
+                            val total = values.filterNotNull().sum()
+                            "<tr><td>${htmlEscape(st.studentId)}</td><td class="name">${htmlEscape(st.studentName)}</td>" +
+                                values.joinToString("") { "<td>${it?.toString() ?: ""}</td>" } + "<td><b>$total</b></td></tr>"
+                        }.joinToString("\n")
+                        val header = specs.joinToString("") { "<th>${htmlEscape(it.first)}</th>" }
+                        printMonthlyExamReportHtml(context, "Monthly Exam Report - Class $className$section - $reportMonth",
+                            "<h1>Amtoli Model School</h1><h2>Monthly exam report for ${htmlEscape(YearMonth.parse(reportMonth).format(DateTimeFormatter.ofPattern("MMMM - yyyy", java.util.Locale.ENGLISH)))}</h2><h3>Class :${htmlEscape(className)} Section:${htmlEscape(section)}</h3>",
+                            "<th>Roll</th><th>Student Name</th>$header<th>Total</th>", rows)
+                        message = "Monthly Exam Report opened in print preview. Choose Save as PDF."
+                    } catch (t: Throwable) {
+                        message = "Could not create monthly report: ${t.message ?: "database error"}"
+                    }
+                }
+            }, Modifier.fillMaxWidth(), enabled = classStudents.isNotEmpty()) { Text("Generate Monthly Exam Report") }
+            Spacer(Modifier.height(6.dp))
             LazyColumn(Modifier.weight(1f)) {
                 item { Text("$examType — Class $className$section", fontWeight = FontWeight.Bold); Spacer(Modifier.height(6.dp)) }
                 items(
@@ -2354,6 +2398,9 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     if (!teacherMode && showClass) { DropdownDialog("Class", listOf("6","7","8","9","10"), { className=it; subjectIndex=0; if (it == "10" && examType == "Second Term") examType = "Second Term"; showClass=false }, { showClass=false }) }
     if (!teacherMode && showSection) { DropdownDialog("Section", listOf("A","B"), { section=it; showSection=false }, { showSection=false }) }
     if (showSubject) { DropdownDialog("Subject", subjects.map { it.name }, { v -> subjectIndex=subjects.indexOfFirst { it.name==v }.coerceAtLeast(0); showSubject=false }, { showSubject=false }) }
+    if (showReportMonth) {
+        DropdownDialog("Report month", (0..23).map { YearMonth.now().minusMonths(it.toLong()).toString() }, { reportMonth = it; showReportMonth = false }, { showReportMonth = false })
+    }
     if (showMonths) {
         MonthSelectionDialog(
             selected = selectedMonths,
@@ -3282,6 +3329,39 @@ private fun renderAmtoliCardHtml(
       ${if (examType == "Annual" && className.trim().removePrefix("Class ").trim() != "10") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"6\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
       <div class="comment"><b>CLASS TEACHER’S COMMENT:</b></div><div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div><div class="signature">Parent’s Signature</div></div>
     </section>"""
+}
+
+private fun printMonthlyExamReportHtml(context: Context, jobName: String, heading: String, tableHeader: String, rows: String) {
+    val html = """<!doctype html><html><head><meta charset="UTF-8"><style>
+      @page { size: A4 landscape; margin: 5mm; }
+      * { box-sizing: border-box; } body { font-family: Arial, sans-serif; margin: 0; color: #111; }
+      h1 { font-size: 18pt; margin: 0 0 2px; text-align: center; }
+      h2 { font-size: 12pt; margin: 0 0 2px; text-align: center; }
+      h3 { font-size: 10pt; margin: 0 0 6px; text-align: center; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7pt; }
+      th, td { border: 1px solid #333; padding: 2px 3px; text-align: center; overflow-wrap: anywhere; }
+      th { font-weight: bold; background: #eee; } td.name { text-align: left; }
+      .signatures { display: flex; justify-content: space-between; margin: 14px 25px 0; font-size: 9pt; }
+      .signature { border-top: 1px solid #222; padding-top: 4px; width: 27%; text-align: center; }
+      </style></head><body>$heading<table><thead><tr>$tableHeader</tr></thead><tbody>$rows</tbody></table>
+      <div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div></div>
+      </body></html>"""
+    val webView = WebView(context)
+    webView.settings.javaScriptEnabled = false
+    webView.settings.defaultTextEncodingName = "UTF-8"
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String?) {
+            super.onPageFinished(view, url)
+            val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+            val adapter = view.createPrintDocumentAdapter(jobName.take(80))
+            val attributes = PrintAttributes.Builder()
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A4.asLandscape())
+                .setResolution(PrintAttributes.Resolution("ams_monthly_pdf", "AMS Monthly PDF", 300, 300))
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS).build()
+            printManager.print(jobName.take(80), adapter, attributes)
+        }
+    }
+    webView.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
 }
 
 private fun printResultCardsHtml(context: Context, jobName: String, cards: List<String>) {
