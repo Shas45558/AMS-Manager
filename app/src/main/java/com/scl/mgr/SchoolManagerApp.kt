@@ -1676,8 +1676,29 @@ private val CLASS_9_EXAM_SUBJECTS = listOf(
 private fun isClass9Or10(className: String): Boolean =
     className.trim().removePrefix("Class ").trim() in setOf("9", "10")
 
-private fun examSubjectsForClass(className: String): List<ExamSubjectSpec> =
-    if (isClass9Or10(className)) CLASS_9_EXAM_SUBJECTS else CLASS_6_8_EXAM_SUBJECTS
+private fun examSubjectsForClass(className: String): List<ExamSubjectSpec> = when (className.trim().removePrefix("Class ").trim()) {
+    "9" -> CLASS_9_EXAM_SUBJECTS
+    "10" -> CLASS_9_EXAM_SUBJECTS.filterNot { it.key == "oral" }
+    else -> CLASS_6_8_EXAM_SUBJECTS
+}
+
+private fun examOptionsForClass(className: String): List<String> =
+    if (className.trim().removePrefix("Class ").trim() == "10") listOf("First Term", "Pre-Test", "Test Exam")
+    else listOf("First Term", "Second Term", "Annual")
+
+private fun canonicalExamType(className: String, selected: String): String =
+    if (className.trim().removePrefix("Class ").trim() == "10") when (selected) {
+        "Pre-Test" -> "Second Term"
+        "Test Exam" -> "Annual"
+        else -> selected
+    } else selected
+
+private fun displayExamType(className: String, canonical: String): String =
+    if (className.trim().removePrefix("Class ").trim() == "10") when (canonical) {
+        "Second Term" -> "Pre-Test"
+        "Annual" -> "Test Exam"
+        else -> canonical
+    } else canonical
 
 private fun isCombinedPaperKey(key: String): Boolean = key in setOf("bangla1", "bangla2", "english1", "english2")
 
@@ -2062,7 +2083,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
         Text("Classes 6–8 Exam & Results", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.weight(1f)) { OutlinedButton({ showExamType = true }, Modifier.fillMaxWidth()) { Text(examType) } }
+            Box(Modifier.weight(1f)) { OutlinedButton({ showExamType = true }, Modifier.fillMaxWidth()) { Text(displayExamType(className, examType)) } }
             if (!teacherMode) {
                 Box(Modifier.weight(.7f)) { OutlinedButton({ showClass = true }, Modifier.fillMaxWidth()) { Text("Class $className") } }
                 Box(Modifier.weight(.6f)) { OutlinedButton({ showSection = true }, Modifier.fillMaxWidth()) { Text("Sec $section") } }
@@ -2324,8 +2345,8 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             )
         }
     }
-    if (showExamType) { DropdownDialog("Exam", listOf("First Term", "Second Term", "Annual"), { examType=it; showExamType=false; resultRows=emptyList() }, { showExamType=false }) }
-    if (!teacherMode && showClass) { DropdownDialog("Class", listOf("6","7","8"), { className=it; subjectIndex=0; showClass=false }, { showClass=false }) }
+    if (showExamType) { DropdownDialog("Exam", examOptionsForClass(className), { examType=canonicalExamType(className, it); showExamType=false; resultRows=emptyList() }, { showExamType=false }) }
+    if (!teacherMode && showClass) { DropdownDialog("Class", listOf("6","7","8","9","10"), { className=it; subjectIndex=0; if (it == "10" && examType == "Second Term") examType = "Second Term"; showClass=false }, { showClass=false }) }
     if (!teacherMode && showSection) { DropdownDialog("Section", listOf("A","B"), { section=it; showSection=false }, { showSection=false }) }
     if (showSubject) { DropdownDialog("Subject", subjects.map { it.name }, { v -> subjectIndex=subjects.indexOfFirst { it.name==v }.coerceAtLeast(0); showSubject=false }, { showSubject=false }) }
     if (showMonths) {
@@ -2927,8 +2948,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             val sections = listOf("A", "B", "C", "D") + activeStudents.filter { it.className == className }.map { it.section }.distinct()
             DropdownField("Section", section, sections.distinct().sorted()) { section = it }
         } else Text("Assigned class: $assignedClass • Section: $assignedSection", style = MaterialTheme.typography.bodyMedium)
-        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", examType, if (reportType == "Student report cards") listOf("First Term", "Second Term", "Annual") else listOf("First Term", "Second Term", "Annual")) { examType = it }
-        if (reportType == "Student report cards" && className !in listOf("6", "7", "8", "9")) Text("The Amtoli result-card template is configured for Classes 6–9.", color = MaterialTheme.colorScheme.error)
+        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", displayExamType(className, examType), examOptionsForClass(className)) { examType = canonicalExamType(className, it) }
+        if (reportType == "Student report cards" && className !in listOf("6", "7", "8", "9", "10")) Text("The Amtoli result-card template is configured for Classes 6–10.", color = MaterialTheme.colorScheme.error)
         if (reportType == "Monthly exam reports") OutlinedTextField(value = month, onValueChange = { month = it.take(7) }, label = { Text("Month (YYYY-MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (reportType == "Attendance reports") {
             OutlinedTextField(value = startDate, onValueChange = { startDate = it.take(10) }, label = { Text("Start date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -2940,8 +2961,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Student report cards") {
-                        require(className in listOf("6", "7", "8", "9")) { "The result-card template is configured for Classes 6, 7, 8 and 9." }
-                        require(examType in listOf("First Term", "Second Term", "Annual")) { "Choose First Term, Second Term or Annual." }
+                        require(className in listOf("6", "7", "8", "9", "10")) { "The result-card template is configured for Classes 6–10." }
+                        require(examType in listOf("First Term", "Second Term", "Annual")) { "Choose a valid exam for the selected class." }
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
                         fun normalizeMarks(allMarks: List<ExamMark>, type: String): Map<Pair<Long, String>, ExamMark> =
                             allMarks
@@ -3173,7 +3194,7 @@ private fun printStudentResultCardHtml(
     val displayRows = applyClass9CombinedPaperGrades(rows, className)
     val monthly = String.format(java.util.Locale.US, "%.2f", detail.monthlyEquivalent)
     printResultCardsHtml(context, "AMS Result Card - ${student.studentName}", listOf(renderAmtoliCardHtml(
-        student, displayRows, className, section, detail.examType, monthly,
+        student, displayRows, className, section, displayExamType(className, detail.examType), monthly,
         if (detail.examType == "Annual") detail.firstTotal.toString().removeSuffix(".0") else "",
         if (detail.examType == "Annual") detail.secondTotal.toString().removeSuffix(".0") else "",
         if (detail.examType == "Annual" && detail.subjectRows.any { it.total >= 0 }) String.format(java.util.Locale.US, "%.2f", detail.annualAverage) else ""
@@ -3204,7 +3225,7 @@ private fun printBulkResultCardsHtml(
         val annualAverage = if (examType == "Annual" && firstTotal.isNotBlank() && secondTotal.isNotBlank() && rows.any { it.total.isNotBlank() }) {
             String.format(java.util.Locale.US, "%.2f", ((firstTotal.toDoubleOrNull() ?: 0.0) + (secondTotal.toDoubleOrNull() ?: 0.0) + annualTotal) / 3.0)
         } else ""
-        renderAmtoliCardHtml(student, displayRows, className, section, examType, "", firstTotal, secondTotal, annualAverage)
+        renderAmtoliCardHtml(student, displayRows, className, section, displayExamType(className, examType), "", firstTotal, secondTotal, annualAverage)
     }
     printResultCardsHtml(context, "AMS Result Cards - Class $className Section $section - $examType", cards)
 }
@@ -3250,10 +3271,10 @@ private fun renderAmtoliCardHtml(
       <tr><td>Roll No: ${htmlEscape(student.studentId)}</td><td>GPA: ${String.format(java.util.Locale.US, "%.2f", gpa)}</td></tr><tr><td>Address: ${htmlEscape(student.address)}</td><td>Grade: $grade</td></tr><tr><td></td><td>Next Class Roll Number:</td></tr></table>
       <div class="section-title">SUBJECT / PAPER RESULTS</div><table class="marks"><thead><tr><th>Sl.</th><th>Subject / Paper</th><th>Full Marks</th><th>CQ</th><th>MCQ</th><th>Total</th><th>GPA</th><th>Grade</th></tr></thead><tbody>$rowHtml
       <tr class="summary"><td colspan="2">Total Marks:</td><td colspan="6">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
-      <tr class="summary"><td colspan="2">Monthly Evaluation Average:</td><td colspan="6">${htmlEscape(monthlyAverage)}</td></tr>
-      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">First Term Total Marks:</td><td colspan=\"6\">${htmlEscape(firstTermTotal)}</td></tr><tr class=\"summary\"><td colspan=\"2\">Second Term Total Marks:</td><td colspan=\"6\">${htmlEscape(secondTermTotal)}</td></tr>" else ""}
-      <tr class="summary"><td colspan="2">Grand Total Marks:</td><td colspan="6">${if (presentRows.isEmpty()) "" else obtained}</td></tr>
-      ${if (examType == "Annual") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"6\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
+      ${if (className.trim().removePrefix("Class ").trim() != "10") "<tr class=\"summary\"><td colspan=\"2\">Monthly Evaluation Average:</td><td colspan=\"6\">${htmlEscape(monthlyAverage)}</td></tr>" else ""}
+      ${if (examType == "Annual" && className.trim().removePrefix("Class ").trim() != "10") "<tr class=\"summary\"><td colspan=\"2\">First Term Total Marks:</td><td colspan=\"6\">${htmlEscape(firstTermTotal)}</td></tr><tr class=\"summary\"><td colspan=\"2\">Second Term Total Marks:</td><td colspan=\"6\">${htmlEscape(secondTermTotal)}</td></tr>" else ""}
+      ${if (className.trim().removePrefix("Class ").trim() != "10") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks:</td><td colspan=\"6\">${if (presentRows.isEmpty()) "" else obtained}</td></tr>" else ""}
+      ${if (examType == "Annual" && className.trim().removePrefix("Class ").trim() != "10") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"6\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
       <div class="comment"><b>CLASS TEACHER’S COMMENT:</b></div><div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div><div class="signature">Parent’s Signature</div></div>
     </section>"""
 }
