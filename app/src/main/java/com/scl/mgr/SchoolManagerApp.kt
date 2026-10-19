@@ -2214,9 +2214,9 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                             "Bangla" to "bangla", "English" to "english", "Math" to "math",
                             "S.Science" to "social", "Science" to "science", "Religion" to "religion"
                         )
-                        val rows = classStudents.take(45).map { st ->
+                        val rows = classStudents.take(45).map { st: Student ->
                             val ex = monthlyRows[st.id]
-                            val values = specs.map { (_, key) -> when (key) {
+                            val values: List<Int?> = specs.map { spec: Pair<String, String> -> when (spec.second) {
                                 "bangla" -> ex?.bangla; "english" -> ex?.english; "math" -> ex?.math
                                 "social" -> ex?.socialScience; "science" -> ex?.science; "religion" -> ex?.religion
                                 "physics" -> ex?.physics; "chemistry" -> ex?.chemistry; "biology" -> ex?.biology
@@ -2224,7 +2224,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                             } }
                             val total = values.filterNotNull().sum()
                             "<tr><td>${htmlEscape(st.studentId)}</td><td class=\"name\">${htmlEscape(st.studentName)}</td>" +
-                                values.joinToString("") { "<td>${it?.toString() ?: ""}</td>" } + "<td><b>$total</b></td></tr>"
+                                values.joinToString("") { value: Int? -> "<td>${value?.toString() ?: ""}</td>" } + "<td><b>$total</b></td></tr>"
                         }.joinToString("\n")
                         val header = specs.joinToString("") { "<th>${htmlEscape(it.first)}</th>" }
                         printMonthlyExamReportHtml(context, "Monthly Exam Report - Class $className$section - $reportMonth",
