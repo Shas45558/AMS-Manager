@@ -1780,6 +1780,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     var examType by rememberSaveable { mutableStateOf("Annual") }
     var className by rememberSaveable { mutableStateOf(if (teacherMode) assignedClass else "6") }
     var section by rememberSaveable { mutableStateOf(if (teacherMode) assignedSection else "A") }
+    var sscYear by rememberSaveable { mutableStateOf(LocalDate.now().year.toString()) }
     var subjectIndex by rememberSaveable { mutableIntStateOf(0) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var marks by remember { mutableStateOf<Map<Long, Pair<String, String>>>(emptyMap()) }
@@ -2506,6 +2507,7 @@ private fun MonthlyExamScreen(repository: SchoolRepository, teacherMode: Boolean
     val students = if (teacherMode) allStudents.filter { it.className == assignedClass && it.section == assignedSection } else allStudents
     var className by rememberSaveable { mutableStateOf(if (teacherMode) assignedClass else "6") }
     var section by rememberSaveable { mutableStateOf(if (teacherMode) assignedSection else "A") }
+    var sscYear by rememberSaveable { mutableStateOf(LocalDate.now().year.toString()) }
     var month by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
     var subjectIndex by rememberSaveable { mutableIntStateOf(0) }
     var marks by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
@@ -2984,18 +2986,22 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
     var reportType by rememberSaveable { mutableStateOf(PDF_REPORT_TYPES.first()) }
     var className by rememberSaveable { mutableStateOf(if (teacherMode) assignedClass else "6") }
     var section by rememberSaveable { mutableStateOf(if (teacherMode) assignedSection else "A") }
+    var sscYear by rememberSaveable { mutableStateOf(LocalDate.now().year.toString()) }
     var examType by rememberSaveable { mutableStateOf("Annual") }
     var month by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
     var startDate by rememberSaveable { mutableStateOf("${LocalDate.now().year}-01-01") }
     var endDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    val filtered = activeStudents.filter { (it.sscYear.isBlank() || reportType == "SSC student lists") && (teacherMode || it.className == className) && (teacherMode || it.section == section) && (!teacherMode || (it.className == assignedClass && it.section == assignedSection)) && (reportType != "SSC student lists" || it.sscYear.isNotBlank()) }
+    val availableSscYears = (activeStudents.mapNotNull { it.sscYear.toIntOrNull() } + (LocalDate.now().year..LocalDate.now().year + 5).toList()).distinct().sorted().map { it.toString() }
+    val filtered = activeStudents.filter { (it.sscYear.isBlank() || reportType == "SSC student lists") && (reportType == "SSC student lists" || teacherMode || it.className == className) && (reportType == "SSC student lists" || teacherMode || it.section == section) && (reportType == "SSC student lists" || !teacherMode || (it.className == assignedClass && it.section == assignedSection)) && (reportType != "SSC student lists" || it.sscYear == sscYear) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Professional Reports", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(if (reportType == "Student report cards") "Create result cards from the converted Amtoli Model School HTML template, then save them as PDF using Android print preview. Works offline." else "Create print-ready reports with the AMS Manager logo, report title, class details, date range, repeated table headings, page numbers, and signature lines.")
         DropdownField("Report type", reportType, PDF_REPORT_TYPES) { reportType = it }
-        if (!teacherMode) {
+        if (reportType == "SSC student lists") {
+            DropdownField("SSC year", sscYear, availableSscYears) { sscYear = it }
+        } else if (!teacherMode) {
             DropdownField("Class", className, availableClasses.ifEmpty { listOf("6") }) { className = it }
             val sections = listOf("A", "B", "C", "D") + activeStudents.filter { it.className == className }.map { it.section }.distinct()
             DropdownField("Section", section, sections.distinct().sorted()) { section = it }
@@ -3058,15 +3064,15 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                     val rows = mutableListOf<List<String>>()
                     val title = reportType
                     val columns: List<String>
-                    val heading = if (reportType == "SSC student lists") "SSC-${selectedStudents.firstOrNull()?.sscYear ?: "Year"}" else "Class $className • Section $section"
+                    val heading = if (reportType == "SSC student lists") "SSC-$sscYear" else "Class $className • Section $section"
                     when (reportType) {
                         "Student lists" -> {
-                            columns = listOf("Roll", "Student name", "Father's name", "Gender", "Religion", "Mobile")
-                            selectedStudents.forEach { rows.add(listOf(it.studentId, it.studentName, it.fatherName, it.gender, it.religion, it.mobileNumber)) }
+                            columns = listOf("Roll", "Student's name", "Father's name", "Phone number", "Address")
+                            selectedStudents.forEach { rows.add(listOf(it.studentId, it.studentName, it.fatherName, it.mobileNumber, it.address)) }
                         }
                         "SSC student lists" -> {
-                            columns = listOf("Roll", "Student name", "Section", "SSC year", "Father's name", "Mobile")
-                            selectedStudents.forEach { rows.add(listOf(it.studentId, it.studentName, it.section, it.sscYear, it.fatherName, it.mobileNumber)) }
+                            columns = listOf("Roll", "Student's name", "Father's name", "Phone number", "Address")
+                            selectedStudents.sortedBy { it.section }.forEach { rows.add(listOf(it.studentId, it.studentName, it.fatherName, it.mobileNumber, it.address)) }
                         }
                         "Attendance reports" -> {
                             require(runCatching { LocalDate.parse(startDate); LocalDate.parse(endDate); startDate <= endDate }.getOrDefault(false)) { "Enter valid dates in YYYY-MM-DD format, with start date before end date." }
@@ -3107,27 +3113,43 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                             }
                         }
                     }
-                    if (reportType == "Monthly exam reports") {
-                        // Monthly reports must use the HTML/WebView print pipeline, not the legacy
-                        // generated-PDF table, so the saved PDF matches the HTML report template.
+                    if (reportType == "Monthly exam reports" || reportType == "Student lists" || reportType == "SSC student lists") {
+                        // HTML print layout for portal-style reports.
                         val htmlHeader = columns.joinToString("") { "<th>${htmlEscape(it)}</th>" }
-                        val htmlRows = rows.take(45).joinToString("\n") { row ->
+                        fun toHtmlRows(data: List<List<String>>) = data.joinToString("\n") { row ->
                             "<tr>" + row.mapIndexed { index, cell ->
                                 val css = if (index == 1) " class=\"name\"" else ""
                                 "<td$css>${htmlEscape(cell.takeIf { it != "—" } ?: "")}</td>"
                             }.joinToString("") + "</tr>"
                         }
-                        val monthLabel = runCatching {
-                            YearMonth.parse(month).format(DateTimeFormatter.ofPattern("MMMM - yyyy", java.util.Locale.ENGLISH))
-                        }.getOrDefault(month)
-                        printMonthlyExamReportHtml(
-                            context,
-                            "Monthly Exam Report - Class $className$section - $month",
-                            "<h1>Amtoli Model School</h1><h2>Monthly exam report for ${htmlEscape(monthLabel)}</h2><h3>Class :${htmlEscape(className)} Section:${htmlEscape(section)}</h3>",
-                            htmlHeader,
-                            htmlRows
-                        )
-                        message = "Monthly exam report opened in HTML print preview. Choose Save as PDF."
+                        val htmlRows = toHtmlRows(rows.take(if (reportType == "Monthly exam reports") 45 else rows.size))
+                        val htmlHeading: String
+                        val htmlBodyRows: String
+                        val printName: String
+                        when (reportType) {
+                            "Monthly exam reports" -> {
+                                val monthLabel = runCatching { YearMonth.parse(month).format(DateTimeFormatter.ofPattern("MMMM - yyyy", java.util.Locale.ENGLISH)) }.getOrDefault(month)
+                                htmlHeading = "<h1>Amtoli Model School</h1><h2>Monthly exam report for ${htmlEscape(monthLabel)}</h2><h3>Class :${htmlEscape(className)} Section:${htmlEscape(section)}</h3>"
+                                htmlBodyRows = htmlRows
+                                printName = "Monthly Exam Report - Class $className$section - $month"
+                            }
+                            "Student lists" -> {
+                                htmlHeading = "<h1>Amtoli Model School</h1><h2>Class : ${htmlEscape(className)} &nbsp; Section: ${htmlEscape(section)} &nbsp; Year: ${LocalDate.now().year}</h2>"
+                                htmlBodyRows = htmlRows
+                                printName = "Student List - Class $className Section $section"
+                            }
+                            else -> {
+                                val sectionA = selectedStudents.filter { it.section.equals("A", true) }.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
+                                val sectionB = selectedStudents.filter { it.section.equals("B", true) }.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
+                                val rowsA = toHtmlRows(sectionA.map { listOf(it.studentId, it.studentName, it.fatherName, it.mobileNumber, it.address) })
+                                val rowsB = toHtmlRows(sectionB.map { listOf(it.studentId, it.studentName, it.fatherName, it.mobileNumber, it.address) })
+                                htmlHeading = "<h1>Amtoli Model School</h1><h2>SSC Student List &nbsp; Year: ${htmlEscape(sscYear)} &nbsp; Section: A</h2>"
+                                htmlBodyRows = "$rowsA</tbody></table><div class=\"page-break\"></div><h1>Amtoli Model School</h1><h2>SSC Student List &nbsp; Year: ${htmlEscape(sscYear)} &nbsp; Section: B</h2><table><thead><tr>$htmlHeader</tr></thead><tbody>$rowsB"
+                                printName = "SSC Student List - $sscYear - Sections A and B"
+                            }
+                        }
+                        printMonthlyExamReportHtml(context, printName, htmlHeading, htmlHeader, htmlBodyRows)
+                        message = "${reportType} opened in HTML print preview. Choose Save as PDF."
                     } else {
                         val fileName = "AMS_${reportType.replace(' ', '_')}_${LocalDate.now()}.pdf"
                         val result = generateProfessionalTablePdf(context, title, heading, columns, rows, fileName, if (reportType == "Exam marksheets") PdfOrientation.LANDSCAPE else PdfOrientation.PORTRAIT)
@@ -3364,6 +3386,7 @@ private fun printMonthlyExamReportHtml(context: Context, jobName: String, headin
       table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7pt; }
       th, td { border: 1px solid #333; padding: 2px 3px; text-align: center; overflow-wrap: anywhere; }
       th { font-weight: bold; background: #eee; } td.name { text-align: left; }
+      .page-break { page-break-before: always; break-before: page; height: 0; }
       .signatures { display: flex; justify-content: space-between; margin: 14px 25px 0; font-size: 9pt; }
       .signature { border-top: 1px solid #222; padding-top: 4px; width: 27%; text-align: center; }
       </style></head><body>$heading<table><thead><tr>$tableHeader</tr></thead><tbody>$rows</tbody></table>
