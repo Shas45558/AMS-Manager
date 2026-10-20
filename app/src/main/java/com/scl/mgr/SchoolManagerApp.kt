@@ -3076,12 +3076,19 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                         }
                         "Attendance reports" -> {
                             require(runCatching { LocalDate.parse(startDate); LocalDate.parse(endDate); startDate <= endDate }.getOrDefault(false)) { "Enter valid dates in YYYY-MM-DD format, with start date before end date." }
-                            columns = listOf("Roll", "Student name", "Present", "Absent", "Attendance %")
+                            columns = listOf("Roll", "Student's name", "Present", "Absent", "Percentage")
+                            val from = LocalDate.parse(startDate)
+                            val to = LocalDate.parse(endDate)
+                            var workingDays = 0
+                            var day = from
+                            while (!day.isAfter(to)) {
+                                if (day.dayOfWeek != java.time.DayOfWeek.FRIDAY && day.dayOfWeek != java.time.DayOfWeek.SATURDAY) workingDays++
+                                day = day.plusDays(1)
+                            }
                             selectedStudents.forEach { st ->
                                 val present = repository.studentPresentCountBetween(st.id, startDate, endDate)
                                 val absent = repository.studentAbsentCountBetween(st.id, startDate, endDate)
-                                val total = present + absent
-                                val percent = if (total == 0) "—" else "${(present * 100.0 / total).toInt()}%"
+                                val percent = if (workingDays == 0) "—" else "${(present * 100.0 / workingDays).toInt()}%"
                                 rows.add(listOf(st.studentId, st.studentName, present.toString(), absent.toString(), percent))
                             }
                         }
@@ -3113,7 +3120,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                             }
                         }
                     }
-                    if (reportType == "Monthly exam reports" || reportType == "Student lists" || reportType == "SSC student lists") {
+                    if (reportType == "Monthly exam reports" || reportType == "Student lists" || reportType == "SSC student lists" || reportType == "Attendance reports") {
                         // HTML print layout for portal-style reports.
                         val htmlHeader = columns.joinToString("") { "<th>${htmlEscape(it)}</th>" }
                         fun toHtmlRows(data: List<List<String>>) = data.joinToString("\n") { row ->
@@ -3127,6 +3134,19 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                         val htmlBodyRows: String
                         val printName: String
                         when (reportType) {
+                            "Attendance reports" -> {
+                                val from = LocalDate.parse(startDate)
+                                val to = LocalDate.parse(endDate)
+                                var workingDays = 0
+                                var day = from
+                                while (!day.isAfter(to)) {
+                                    if (day.dayOfWeek != java.time.DayOfWeek.FRIDAY && day.dayOfWeek != java.time.DayOfWeek.SATURDAY) workingDays++
+                                    day = day.plusDays(1)
+                                }
+                                htmlHeading = "<h1>Amtoli Model School</h1><h2>Attendance Report</h2><h3>Class : ${htmlEscape(className)} &nbsp; Section: ${htmlEscape(section)}</h3><h3>Date: ${htmlEscape(startDate)} to ${htmlEscape(endDate)} &nbsp; Total Working Days: $workingDays</h3>"
+                                htmlBodyRows = htmlRows
+                                printName = "Attendance Report - Class $className Section $section - $startDate to $endDate"
+                            }
                             "Monthly exam reports" -> {
                                 val monthLabel = runCatching { YearMonth.parse(month).format(DateTimeFormatter.ofPattern("MMMM - yyyy", java.util.Locale.ENGLISH)) }.getOrDefault(month)
                                 htmlHeading = "<h1>Amtoli Model School</h1><h2>Monthly exam report for ${htmlEscape(monthLabel)}</h2><h3>Class :${htmlEscape(className)} Section:${htmlEscape(section)}</h3>"
