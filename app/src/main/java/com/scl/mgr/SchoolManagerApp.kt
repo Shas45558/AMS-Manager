@@ -1378,6 +1378,15 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
         }
     }
 
+    val selectedAttendanceDate = remember(date) { runCatching { LocalDate.parse(date) }.getOrNull() }
+    val selectedClosure = selectedAttendanceDate?.let { selected -> closures.firstOrNull { closure ->
+        runCatching { !selected.isBefore(LocalDate.parse(closure.from)) && !selected.isAfter(LocalDate.parse(closure.to)) }.getOrDefault(false)
+    } }
+    val attendanceClosed = selectedClosure != null
+    val presentCount = statuses.values.count { it == true }
+    val absentCount = statuses.values.count { it == false }
+    val unmarkedCount = (filteredStudents.size - presentCount - absentCount).coerceAtLeast(0)
+
     val classOptions = remember(allStudents) { listOf("All") + allStudents.map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 }) }
     val sectionOptions = remember(allStudents, selectedClass) {
         listOf("All") + allStudents.filter { selectedClass == "All" || it.className == selectedClass }.map { it.section }.distinct().sorted()
@@ -1402,12 +1411,46 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("School Close") })
         }
 
-        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DropdownField("Class", selectedClass, classOptions, Modifier.weight(1f)) {
-                selectedClass = it
-                selectedSection = "All"
+        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DropdownField("Class", selectedClass, classOptions, Modifier.weight(1f)) {
+                        selectedClass = it
+                        selectedSection = "All"
+                    }
+                    DropdownField("Section", selectedSection, sectionOptions, Modifier.weight(1f)) { selectedSection = it }
+                }
+                if (tab == 0) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Attendance date", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(selectedAttendanceDate?.format(DateTimeFormatter.ofPattern("EEE, dd MMM yyyy")) ?: "Enter a valid date", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(onClick = { showDatePicker = true }) { Icon(Icons.Default.DateRange, contentDescription = "Choose attendance date") }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = date, onValueChange = { date = it.take(10) }, label = { Text("YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true, isError = selectedAttendanceDate == null)
+                        TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Today") }
+                    }
+                    if (attendanceClosed) {
+                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                            Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                                Column {
+                                    Text("School Closed — Attendance Unavailable", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                                    Text("${selectedClosure?.reason} • ${selectedClosure?.from} to ${selectedClosure?.to}", color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    } else if (selectedAttendanceDate != null) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AssistChip(onClick = {}, label = { Text("Present $presentCount") }, leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null) })
+                            AssistChip(onClick = {}, label = { Text("Absent $absentCount") }, leadingIcon = { Icon(Icons.Default.Cancel, contentDescription = null) })
+                            AssistChip(onClick = {}, label = { Text("Unmarked $unmarkedCount") })
+                        }
+                    }
+                }
             }
-            DropdownField("Section", selectedSection, sectionOptions, Modifier.weight(1f)) { selectedSection = it }
         }
 
         if (tab == 2) {
@@ -1470,24 +1513,27 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
                 }
             }
         } else if (tab == 0) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text("Date (YYYY-MM-DD)") }, modifier = Modifier.weight(1f), singleLine = true)
-                IconButton(onClick = { showDatePicker = true }) { Icon(Icons.Default.DateRange, contentDescription = "Choose date") }
-            }
             if (filteredStudents.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No students in this class/section.") }
+            } else if (selectedAttendanceDate == null) {
+                Text("Please select a valid attendance date.", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(filteredStudents, key = { it.id }) { student ->
                         val status = statuses[student.id]
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(student.studentName, fontWeight = FontWeight.Bold)
-                                Text("Roll ${student.studentId} • Class ${student.className}-${student.section}")
-                                Spacer(Modifier.height(8.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(onClick = { scope.launch { repository.markAttendance(student.id, date, true); statuses = statuses + (student.id to true) } }, modifier = Modifier.weight(1f), colors = if (status == true) ButtonDefaults.buttonColors() else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("Present") }
-                                    OutlinedButton(onClick = { scope.launch { repository.markAttendance(student.id, date, false); statuses = statuses + (student.id to false) } }, modifier = Modifier.weight(1f)) { Text("Absent") }
+                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (status == true) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else if (status == false) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface)) {
+                            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                                    Text(student.studentName.trim().firstOrNull()?.uppercase() ?: "?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(student.studentName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
+                                    Text("Roll ${student.studentId} • ${student.className}-${student.section}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(when (status) { true -> "Marked Present"; false -> "Marked Absent"; else -> "Not marked" }, style = MaterialTheme.typography.labelSmall, color = when (status) { true -> MaterialTheme.colorScheme.primary; false -> MaterialTheme.colorScheme.error; else -> MaterialTheme.colorScheme.onSurfaceVariant })
+                                }
+                                Column(Modifier.width(104.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Button(onClick = { scope.launch { repository.markAttendance(student.id, date, true); statuses = statuses + (student.id to true) } }, enabled = !attendanceClosed, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), colors = if (status == true) ButtonDefaults.buttonColors() else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("Present") }
+                                    OutlinedButton(onClick = { scope.launch { repository.markAttendance(student.id, date, false); statuses = statuses + (student.id to false) } }, enabled = !attendanceClosed, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("Absent") }
                                 }
                             }
                         }
