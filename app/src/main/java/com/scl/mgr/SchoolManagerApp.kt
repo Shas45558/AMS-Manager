@@ -3107,11 +3107,34 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                             }
                         }
                     }
-                    val fileName = "AMS_${reportType.replace(' ', '_')}_${LocalDate.now()}.pdf"
-                    val result = generateProfessionalTablePdf(context, title, heading, columns, rows, fileName, if (reportType == "Exam marksheets" || reportType == "Monthly exam reports") PdfOrientation.LANDSCAPE else PdfOrientation.PORTRAIT)
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, result.uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                    context.startActivity(Intent.createChooser(shareIntent, "Share $reportType PDF").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                    message = "PDF saved to Downloads/AMS Manager: ${result.fileName}"
+                    if (reportType == "Monthly exam reports") {
+                        // Monthly reports must use the HTML/WebView print pipeline, not the legacy
+                        // generated-PDF table, so the saved PDF matches the HTML report template.
+                        val htmlHeader = columns.joinToString("") { "<th>${htmlEscape(it)}</th>" }
+                        val htmlRows = rows.take(45).joinToString("\n") { row ->
+                            "<tr>" + row.mapIndexed { index, cell ->
+                                val css = if (index == 1) " class=\"name\"" else ""
+                                "<td$css>${htmlEscape(cell.takeIf { it != "—" } ?: "")}</td>"
+                            }.joinToString("") + "</tr>"
+                        }
+                        val monthLabel = runCatching {
+                            YearMonth.parse(month).format(DateTimeFormatter.ofPattern("MMMM - yyyy", java.util.Locale.ENGLISH))
+                        }.getOrDefault(month)
+                        printMonthlyExamReportHtml(
+                            context,
+                            "Monthly Exam Report - Class $className$section - $month",
+                            "<h1>Amtoli Model School</h1><h2>Monthly exam report for ${htmlEscape(monthLabel)}</h2><h3>Class :${htmlEscape(className)} Section:${htmlEscape(section)}</h3>",
+                            htmlHeader,
+                            htmlRows
+                        )
+                        message = "Monthly exam report opened in HTML print preview. Choose Save as PDF."
+                    } else {
+                        val fileName = "AMS_${reportType.replace(' ', '_')}_${LocalDate.now()}.pdf"
+                        val result = generateProfessionalTablePdf(context, title, heading, columns, rows, fileName, if (reportType == "Exam marksheets") PdfOrientation.LANDSCAPE else PdfOrientation.PORTRAIT)
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, result.uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share $reportType PDF").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                        message = "PDF saved to Downloads/AMS Manager: ${result.fileName}"
+                    }
                 } catch (e: Exception) { message = "PDF failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }
                 finally { busy = false }
             }
