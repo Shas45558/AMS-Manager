@@ -82,6 +82,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 private data class DrawerItem(
     val route: String,
@@ -1302,9 +1303,48 @@ private fun FormField(label: String, value: String, minLines: Int = 1, onValueCh
     )
 }
 
+private data class SchoolClosure(val from: String, val to: String, val reason: String)
+
+private fun loadSchoolClosures(prefs: android.content.SharedPreferences): List<SchoolClosure> =
+    prefs.getString("ranges", "").orEmpty().lines().filter { it.isNotBlank() }.mapNotNull { line ->
+        val parts = line.split("|", limit = 3)
+        if (parts.size == 3 && runCatching { LocalDate.parse(parts[0]); LocalDate.parse(parts[1]) }.isSuccess) SchoolClosure(parts[0], parts[1], parts[2]) else null
+    }
+
+private fun saveSchoolClosures(prefs: android.content.SharedPreferences, closures: List<SchoolClosure>) {
+    prefs.edit().putString("ranges", closures.joinToString("\n") { "${it.from}|${it.to}|${it.reason.replace("|", "/")}" }).apply()
+}
+
+private fun isSchoolClosed(date: LocalDate, closures: List<SchoolClosure>): Boolean = closures.any { c ->
+    runCatching { !date.isBefore(LocalDate.parse(c.from)) && !date.isAfter(LocalDate.parse(c.to)) }.getOrDefault(false)
+}
+
+private fun isWorkingSchoolDay(date: LocalDate, closures: List<SchoolClosure>): Boolean =
+    date.dayOfWeek != java.time.DayOfWeek.FRIDAY && date.dayOfWeek != java.time.DayOfWeek.SATURDAY && !isSchoolClosed(date, closures)
+
+private fun countWorkingSchoolDays(from: LocalDate, to: LocalDate, closures: List<SchoolClosure>): Int {
+    if (from.isAfter(to)) return 0
+    var day = from
+    var count = 0
+    while (!day.isAfter(to)) { if (isWorkingSchoolDay(day, closures)) count++; day = day.plusDays(1) }
+    return count
+}
+
+private fun countAttendanceOnWorkingDays(records: List<com.ams.mgr.data.Attendance>, from: LocalDate, to: LocalDate, closures: List<SchoolClosure>, present: Boolean): Int =
+    records.count { r -> runCatching { val d = LocalDate.parse(r.date); !d.isBefore(from) && !d.isAfter(to) && isWorkingSchoolDay(d, closures) && r.present == present }.getOrDefault(false) }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String) {
+    val context = LocalContext.current
+    val closurePrefs = remember { context.getSharedPreferences("school_closures", Context.MODE_PRIVATE) }
+    var closures by remember { mutableStateOf(loadSchoolClosures(closurePrefs)) }
+    var closureSyncMessage by remember { mutableStateOf("Loading shared school closures…") }
+    val firestore = remember { FirebaseFirestore.getInstance() }
+    val closureCollection = remember { firestore.collection("schools").document(FirebaseSchoolSync.SCHOOL_ID).collection("schoolClosures") }
+    var closureFrom by remember { mutableStateOf(LocalDate.now().toString()) }
+    var closureTo by remember { mutableStateOf(LocalDate.now().toString()) }
+    var closureReason by remember { mutableStateOf("") }
     val allStudentsRaw by repository.students("").collectAsState(initial = emptyList())
     val allStudents = if (teacherMode) allStudentsRaw.filter { it.className == assignedClass && it.section == assignedSection } else allStudentsRaw
     var selectedClass by remember { mutableStateOf("All") }
@@ -1319,6 +1359,24 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
     var tab by remember { mutableIntStateOf(0) }
     var statuses by remember { mutableStateOf<Map<Long, Boolean?>>(emptyMap()) }
     val scope = rememberCoroutineScope()
+
+    // School closures are shared through Firestore. Teachers have read-only access;
+    // only the authorized admin can create or remove closure records (enforced by rules).
+    LaunchedEffect(teacherMode) {
+        try {
+            val remote = closureCollection.get(com.google.firebase.firestore.Source.SERVER).await().documents.mapNotNull { d ->
+                val from = d.getString("from") ?: return@mapNotNull null
+                val to = d.getString("to") ?: return@mapNotNull null
+                val reason = d.getString("reason") ?: "School closed"
+                if (runCatching { LocalDate.parse(from); LocalDate.parse(to) }.isSuccess) SchoolClosure(from, to, reason) else null
+            }.distinctBy { "${it.from}|${it.to}|${it.reason}" }
+            closures = remote
+            saveSchoolClosures(closurePrefs, remote)
+            closureSyncMessage = "Shared school closures synced from Firebase."
+        } catch (e: Exception) {
+            closureSyncMessage = "Could not sync school closures. Showing saved dates on this device."
+        }
+    }
 
     val classOptions = remember(allStudents) { listOf("All") + allStudents.map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 }) }
     val sectionOptions = remember(allStudents, selectedClass) {
@@ -1341,6 +1399,7 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Mark Attendance") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Monthly View") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("School Close") })
         }
 
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1351,7 +1410,66 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
             DropdownField("Section", selectedSection, sectionOptions, Modifier.weight(1f)) { selectedSection = it }
         }
 
-        if (tab == 0) {
+        if (tab == 2) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("School Close / Holidays", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Closed dates are excluded from working-day calculations and attendance counts.")
+                Text(closureSyncMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                if (!teacherMode) {
+                OutlinedTextField(value = closureFrom, onValueChange = { closureFrom = it.take(10) }, label = { Text("From date (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = closureTo, onValueChange = { closureTo = it.take(10) }, label = { Text("To date (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = closureReason, onValueChange = { closureReason = it }, label = { Text("Reason (holiday / examination)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Button(onClick = {
+                    val valid = runCatching { LocalDate.parse(closureFrom) <= LocalDate.parse(closureTo) }.getOrDefault(false)
+                    if (valid && closureReason.isNotBlank()) {
+                        val newClosure = SchoolClosure(closureFrom, closureTo, closureReason.trim())
+                        closures = (closures + newClosure).distinctBy { "${it.from}|${it.to}|${it.reason}" }
+                        saveSchoolClosures(closurePrefs, closures)
+                        closureReason = ""
+                        scope.launch {
+                            try {
+                                val docId = "${newClosure.from}_${newClosure.to}_${newClosure.reason.hashCode()}"
+                                closureCollection.document(docId).set(mapOf(
+                                    "from" to newClosure.from,
+                                    "to" to newClosure.to,
+                                    "reason" to newClosure.reason,
+                                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                                    "updatedBy" to (FirebaseAuth.getInstance().currentUser?.uid ?: "")
+                                )).await()
+                                closureSyncMessage = "Closure saved and synced to Firebase."
+                            } catch (e: Exception) {
+                                closureSyncMessage = "Saved on this device, but Firebase sync failed: ${e.message ?: "check connection/rules"}"
+                            }
+                        }
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Add School Closure") }
+                }
+                if (closures.isEmpty()) Text("No school closures added.")
+                closures.forEachIndexed { index, closure ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(closure.reason, fontWeight = FontWeight.Bold)
+                                Text("${closure.from} to ${closure.to}")
+                            }
+                            if (!teacherMode) TextButton(onClick = {
+                                closures = closures.filterIndexed { i, _ -> i != index }
+                                saveSchoolClosures(closurePrefs, closures)
+                                scope.launch {
+                                    try {
+                                        val docId = "${closure.from}_${closure.to}_${closure.reason.hashCode()}"
+                                        closureCollection.document(docId).delete().await()
+                                        closureSyncMessage = "Closure removed and synced to Firebase."
+                                    } catch (e: Exception) {
+                                        closureSyncMessage = "Removed locally, but Firebase sync failed: ${e.message ?: "check connection/rules"}"
+                                    }
+                                }
+                            }) { Text("Remove") }
+                        }
+                    }
+                }
+            }
+        } else if (tab == 0) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text("Date (YYYY-MM-DD)") }, modifier = Modifier.weight(1f), singleLine = true)
                 IconButton(onClick = { showDatePicker = true }) { Icon(Icons.Default.DateRange, contentDescription = "Choose date") }
@@ -1809,6 +1927,9 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     var detailAnnualMarks by remember { mutableStateOf<List<ExamMark>>(emptyList()) }
     var detailMonthlyRows by remember { mutableStateOf<List<MonthlyExam>>(emptyList()) }
     var detailByStudent by remember { mutableStateOf<Map<Long, StudentDetail>>(emptyMap()) }
+    var includeAttendanceInCard by rememberSaveable { mutableStateOf(false) }
+    var attendanceFrom by rememberSaveable { mutableStateOf(LocalDate.now().withDayOfYear(1).toString()) }
+    var attendanceTo by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
 
     val subjects = examSubjectsForClass(className)
     val class10HasNoMonthlyExam = className.trim().removePrefix("Class ").trim() == "10" && examType in setOf("Second Term", "Annual")
@@ -2336,6 +2457,15 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     Column {
                         Text("Roll ${student.studentId} • ${detail.examType}", fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = includeAttendanceInCard, onCheckedChange = { includeAttendanceInCard = it })
+                            Text("Include attendance in report card")
+                        }
+                        if (includeAttendanceInCard) {
+                            OutlinedTextField(value = attendanceFrom, onValueChange = { attendanceFrom = it.take(10) }, label = { Text("Attendance from (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            OutlinedTextField(value = attendanceTo, onValueChange = { attendanceTo = it.take(10) }, label = { Text("Attendance to (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        }
+                        Spacer(Modifier.height(6.dp))
                         Column(
                             Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
                         ) {
@@ -2375,11 +2505,26 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                 confirmButton = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
-                            try {
-                                printStudentResultCardHtml(context, student, detail, className, section)
-                                message = "Result card opened in Android print preview. Choose Save as PDF to export it."
-                            } catch (e: Exception) {
-                                message = "Could not create result card: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                            scope.launch {
+                                try {
+                                    var totalWorkingDays = ""
+                                    var attendancePresent = ""
+                                    var attendanceAbsent = ""
+                                    if (includeAttendanceInCard) {
+                                        val from = LocalDate.parse(attendanceFrom)
+                                        val to = LocalDate.parse(attendanceTo)
+                                        require(!from.isAfter(to)) { "Attendance start date must be on or before end date." }
+                                        val closures = loadSchoolClosures(context.getSharedPreferences("school_closures", Context.MODE_PRIVATE))
+                                        val records = repository.attendance(student.id).first()
+                                        totalWorkingDays = countWorkingSchoolDays(from, to, closures).toString()
+                                        attendancePresent = countAttendanceOnWorkingDays(records, from, to, closures, true).toString()
+                                        attendanceAbsent = countAttendanceOnWorkingDays(records, from, to, closures, false).toString()
+                                    }
+                                    printStudentResultCardHtml(context, student, detail, className, section, totalWorkingDays, attendancePresent, attendanceAbsent)
+                                    message = "Result card opened in Android print preview. Choose Save as PDF to export it."
+                                } catch (e: Exception) {
+                                    message = "Could not create result card: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                                }
                             }
                         }) { Text("Result Card PDF") }
                         TextButton(onClick = { selectedResultStudent = null }) { Text("Close") }
@@ -3079,15 +3224,12 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                             columns = listOf("Roll", "Student's name", "Present", "Absent", "Percentage")
                             val from = LocalDate.parse(startDate)
                             val to = LocalDate.parse(endDate)
-                            var workingDays = 0
-                            var day = from
-                            while (!day.isAfter(to)) {
-                                if (day.dayOfWeek != java.time.DayOfWeek.FRIDAY && day.dayOfWeek != java.time.DayOfWeek.SATURDAY) workingDays++
-                                day = day.plusDays(1)
-                            }
+                            val closures = loadSchoolClosures(context.getSharedPreferences("school_closures", Context.MODE_PRIVATE))
+                            val workingDays = countWorkingSchoolDays(from, to, closures)
                             selectedStudents.forEach { st ->
-                                val present = repository.studentPresentCountBetween(st.id, startDate, endDate)
-                                val absent = repository.studentAbsentCountBetween(st.id, startDate, endDate)
+                                val attendanceRecords = repository.attendance(st.id).first()
+                                val present = countAttendanceOnWorkingDays(attendanceRecords, from, to, closures, true)
+                                val absent = countAttendanceOnWorkingDays(attendanceRecords, from, to, closures, false)
                                 val percent = if (workingDays == 0) "—" else "${(present * 100.0 / workingDays).toInt()}%"
                                 rows.add(listOf(st.studentId, st.studentName, present.toString(), absent.toString(), percent))
                             }
@@ -3137,12 +3279,8 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                             "Attendance reports" -> {
                                 val from = LocalDate.parse(startDate)
                                 val to = LocalDate.parse(endDate)
-                                var workingDays = 0
-                                var day = from
-                                while (!day.isAfter(to)) {
-                                    if (day.dayOfWeek != java.time.DayOfWeek.FRIDAY && day.dayOfWeek != java.time.DayOfWeek.SATURDAY) workingDays++
-                                    day = day.plusDays(1)
-                                }
+                                val closures = loadSchoolClosures(context.getSharedPreferences("school_closures", Context.MODE_PRIVATE))
+                                val workingDays = countWorkingSchoolDays(from, to, closures)
                                 htmlHeading = "<h1>Amtoli Model School</h1><h2>Attendance Report</h2><h3>Class : ${htmlEscape(className)} &nbsp; Section: ${htmlEscape(section)}</h3><h3>Date: ${htmlEscape(startDate)} to ${htmlEscape(endDate)} &nbsp; Total Working Days: $workingDays</h3>"
                                 htmlBodyRows = htmlRows
                                 printName = "Attendance Report - Class $className Section $section - $startDate to $endDate"
@@ -3293,7 +3431,8 @@ private fun htmlEscape(value: String): String = value
     .replace("\"", "&quot;").replace("'", "&#39;")
 
 private fun printStudentResultCardHtml(
-    context: Context, student: Student, detail: StudentDetail, className: String, section: String
+    context: Context, student: Student, detail: StudentDetail, className: String, section: String,
+    totalWorkingDays: String = "", attendancePresent: String = "", attendanceAbsent: String = ""
 ) {
     val rows = examSubjectsForClass(className).map { spec ->
         val aliases = when (spec.key) {
@@ -3314,7 +3453,8 @@ private fun printStudentResultCardHtml(
         student, displayRows, className, section, displayExamType(className, detail.examType), monthly,
         if (detail.examType == "Annual") detail.firstTotal.toString().removeSuffix(".0") else "",
         if (detail.examType == "Annual") detail.secondTotal.toString().removeSuffix(".0") else "",
-        if (detail.examType == "Annual" && detail.subjectRows.any { it.total >= 0 }) String.format(java.util.Locale.US, "%.2f", detail.annualAverage) else ""
+        if (detail.examType == "Annual" && detail.subjectRows.any { it.total >= 0 }) String.format(java.util.Locale.US, "%.2f", detail.annualAverage) else "",
+        totalWorkingDays, attendancePresent, attendanceAbsent
     )))
 }
 
@@ -3349,7 +3489,8 @@ private fun printBulkResultCardsHtml(
 
 private fun renderAmtoliCardHtml(
     student: Student, rows: List<DocxMarkRow>, className: String, section: String, examType: String, monthlyAverage: String,
-    firstTermTotal: String = "", secondTermTotal: String = "", grandTotalMarksAverage: String = ""
+    firstTermTotal: String = "", secondTermTotal: String = "", grandTotalMarksAverage: String = "",
+    totalWorkingDays: String = "", attendancePresent: String = "", attendanceAbsent: String = ""
 ): String {
     val presentRows = rows.filter { it.total.isNotBlank() }
     val gpaRows = rows.filter { it.name != "Oral" && it.total.isNotBlank() }
@@ -3383,8 +3524,8 @@ private fun renderAmtoliCardHtml(
       <table class="scale"><tr><th>Grade</th><th>GPA</th><th>Marks (%)</th></tr><tr><td>A+</td><td>5.00</td><td>100–80</td></tr><tr><td>A</td><td>4.00</td><td>79–70</td></tr><tr><td>A-</td><td>3.50</td><td>69–60</td></tr><tr><td>B</td><td>3.00</td><td>59–50</td></tr><tr><td>C</td><td>2.00</td><td>49–40</td></tr><tr><td>D</td><td>1.00</td><td>39–33</td></tr><tr><td>F</td><td>0.00</td><td>32–0</td></tr></table></header>
       <div class="title">RESULT CARD</div><div class="examline"><span><b>Exam Name:</b> ${htmlEscape(examType)}</span><span><b>Date:</b> ${LocalDate.now()}</span></div>
       <table class="info"><tr><th>STUDENT DETAILS</th><th>OTHER INFORMATION</th></tr>
-      <tr><td>Student Name: ${htmlEscape(student.studentName)}</td><td>Behavior:</td></tr><tr><td>Father’s Name: ${htmlEscape(student.fatherName)}</td><td>Total Working Days:</td></tr>
-      <tr><td>Class: ${htmlEscape(className)}</td><td>Present:</td></tr><tr><td>Section: ${htmlEscape(section)}</td><td>Absent:</td></tr>
+      <tr><td>Student Name: ${htmlEscape(student.studentName)}</td><td>Behavior:</td></tr><tr><td>Father’s Name: ${htmlEscape(student.fatherName)}</td><td>Total Working Days: ${htmlEscape(totalWorkingDays)}</td></tr>
+      <tr><td>Class: ${htmlEscape(className)}</td><td>Present: ${htmlEscape(attendancePresent)}</td></tr><tr><td>Section: ${htmlEscape(section)}</td><td>Absent: ${htmlEscape(attendanceAbsent)}</td></tr>
       <tr><td>Roll No: ${htmlEscape(student.studentId)}</td><td>GPA: ${String.format(java.util.Locale.US, "%.2f", gpa)}</td></tr><tr><td>Address: ${htmlEscape(student.address)}</td><td>Grade: $grade</td></tr><tr><td></td><td>Next Class Roll Number:</td></tr></table>
       <div class="section-title">SUBJECT / PAPER RESULTS</div><table class="marks"><thead><tr><th>Sl.</th><th>Subject / Paper</th><th>Full Marks</th><th>CQ</th><th>MCQ</th><th>Total</th><th>GPA</th><th>Grade</th></tr></thead><tbody>$rowHtml
       <tr class="summary"><td colspan="2">Total Marks:</td><td colspan="6">${if (presentRows.isEmpty()) "" else obtained}</td></tr>

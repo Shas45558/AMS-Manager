@@ -54,6 +54,12 @@ service cloud.firestore {
       allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
       allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && request.resource.data.section == resource.data.section && sameOrNextClass(resource.data.className, request.resource.data.className)));
     }
+    // School closures are managed by the verified admin and readable by enabled teachers
+    // so attendance and individual report cards use the same shared calendar.
+    match /schools/{schoolId}/schoolClosures/{closureId} {
+      allow read: if schoolId == 'ams-manager-b1434' && (isAdmin() || isEnabledTeacher());
+      allow create, update, delete: if schoolId == 'ams-manager-b1434' && isAdmin();
+    }
     match /schools/{schoolId}/promotionHistory/{historyId} {
       allow read: if schoolId == 'ams-manager-b1434' && isAdmin();
       allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.fromClass, request.resource.data.fromSection));
