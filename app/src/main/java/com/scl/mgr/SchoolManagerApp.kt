@@ -3356,7 +3356,7 @@ private fun renderAmtoliCardHtml(
 
 private fun printMonthlyExamReportHtml(context: Context, jobName: String, heading: String, tableHeader: String, rows: String) {
     val html = """<!doctype html><html><head><meta charset="UTF-8"><style>
-      @page { size: A4 landscape; margin: 5mm; }
+      @page { size: A4 portrait; margin: 7mm; }
       * { box-sizing: border-box; } body { font-family: Arial, sans-serif; margin: 0; color: #111; }
       h1 { font-size: 18pt; margin: 0 0 2px; text-align: center; }
       h2 { font-size: 12pt; margin: 0 0 2px; text-align: center; }
@@ -3378,7 +3378,7 @@ private fun printMonthlyExamReportHtml(context: Context, jobName: String, headin
             val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
             val adapter = view.createPrintDocumentAdapter(jobName.take(80))
             val attributes = PrintAttributes.Builder()
-                .setMediaSize(PrintAttributes.MediaSize.ISO_A4.asLandscape())
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
                 .setResolution(PrintAttributes.Resolution("ams_monthly_pdf", "AMS Monthly PDF", 300, 300))
                 .setMinMargins(PrintAttributes.Margins.NO_MARGINS).build()
             printManager.print(jobName.take(80), adapter, attributes)
