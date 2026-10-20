@@ -1378,6 +1378,13 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
         }
     }
 
+    val filteredStudents = remember(allStudents, selectedClass, selectedSection) {
+        allStudents.filter {
+            (selectedClass == "All" || it.className == selectedClass) &&
+            (selectedSection == "All" || it.section == selectedSection)
+        }
+    }
+
     val selectedAttendanceDate = remember(date) { runCatching { LocalDate.parse(date) }.getOrNull() }
     val selectedClosure = selectedAttendanceDate?.let { selected -> closures.firstOrNull { closure ->
         runCatching { !selected.isBefore(LocalDate.parse(closure.from)) && !selected.isAfter(LocalDate.parse(closure.to)) }.getOrDefault(false)
@@ -1391,13 +1398,6 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
     val sectionOptions = remember(allStudents, selectedClass) {
         listOf("All") + allStudents.filter { selectedClass == "All" || it.className == selectedClass }.map { it.section }.distinct().sorted()
     }
-    val filteredStudents = remember(allStudents, selectedClass, selectedSection) {
-        allStudents.filter {
-            (selectedClass == "All" || it.className == selectedClass) &&
-            (selectedSection == "All" || it.section == selectedSection)
-        }
-    }
-
     LaunchedEffect(date, filteredStudents) {
         val loaded = mutableMapOf<Long, Boolean?>()
         filteredStudents.forEach { student -> loaded[student.id] = repository.attendanceForDate(student.id, date)?.present }
