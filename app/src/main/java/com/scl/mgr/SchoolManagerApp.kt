@@ -3673,8 +3673,35 @@ private fun printDetailedExamMarksheetHtml(
         "<tr>$cells</tr>"
     }
 
-    // Print as two landscape A4 panels that can be joined horizontally.
-    val splitAt = ((subjects.size * 0.70).toInt()).coerceIn(1, subjects.size - 1)
+    // Use one physical width for every CQ/MCQ/Total/GPA cell on both sheets.
+    // Choose the split by rendered sub-column count (not subject count), leaving
+    // room for the six summary columns on the narrow continuation sheet.
+    fun leafColumnCount(subject: ExamSubjectSpec): Int = when {
+        subject.hasMcq -> 4
+        subject.countsForGpa -> 2
+        else -> 1
+    }
+    val firstPageUsableMm = 297.0 - 6.0 - 8.0 - 28.0
+    val continuationUsableMm = 89.1
+    val cellMm = 4.5
+    val firstPageCapacity = (firstPageUsableMm / cellMm).toInt()
+    val continuationCapacity = (continuationUsableMm / cellMm).toInt() - 6 // summary columns
+    var splitAt = 0
+    var firstPageColumns = 0
+    for (i in subjects.indices) {
+        val count = leafColumnCount(subjects[i])
+        if (firstPageColumns + count > firstPageCapacity) break
+        firstPageColumns += count
+        splitAt = i + 1
+    }
+    splitAt = splitAt.coerceIn(1, subjects.size - 1)
+    // If the first sheet has spare width, move the next whole subject onto it
+    // only when the subject still fits; keep all leaf columns the same width.
+    while (splitAt < subjects.size - 1 &&
+        firstPageColumns + leafColumnCount(subjects[splitAt]) <= firstPageCapacity) {
+        firstPageColumns += leafColumnCount(subjects[splitAt])
+        splitAt++
+    }
     val leftSubjects = subjects.take(splitAt)
     val rightSubjects = subjects.drop(splitAt)
     val jobName = "Class $className$section $examType Marksheet 2026"
