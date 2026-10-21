@@ -12,6 +12,7 @@ body { font-size: 7pt; }
 .panel { width: 297mm; height: 210mm; padding: 3mm; overflow: hidden; page-break-after: always; break-after: page; position: relative; }
 .panel:last-child { page-break-after: auto; break-after: auto; }
 .school { text-align: center; font-size: 13pt; font-weight: 700; margin: 0 0 1mm; }
+.panel:first-child > .school { position: relative; left: 44.55mm; }
 .exam { text-align: center; font-size: 9pt; font-weight: 700; margin: 0 0 1mm; }
 .meta { text-align: center; font-size: 8pt; margin: 0 0 2mm; }
 .part { position: absolute; top: 2mm; right: 3mm; font-size: 6.5pt; color: #444; }
@@ -27,27 +28,26 @@ tbody tr { height: 3.35mm; }
 th.grand, td.grand { background: #dedede; font-weight: 700; }
 td.summary-num { font-weight: 600; }
 .signatures { display: flex; align-items: flex-end; font-size: 7.5pt; margin-top: 7mm; }
-.signature { width: 35%; border-top: .7px solid #222; padding-top: 1.5mm; text-align: center; }
+.signature { width: 35mm; max-width: 35%; border-top: .7px solid #222; padding-top: 1.5mm; text-align: center; }
 .left-sign { margin-left: 8mm; }
 .right-sign { margin-left: 0; }
 .note { margin-top: 2mm; font-size: 6pt; text-align: center; color: #444; }
 .right-panel { width: 89.1mm; padding-left: 0; padding-right: 0; }
 .right-panel table { width: 100%; }
 .right-panel .exam, .right-panel .meta { display: none; }
-.right-panel .school.continuation { display: block; text-align: left; font-size: 13pt; margin: 0 0 1mm; white-space: nowrap; }
 .right-panel .part { display: none; }
+.right-panel .signature { width: 35mm; max-width: 95%; }
 </style>
 </head>
 <body>
 <section class="panel">
-  <h1 class="school">Amtoli Mode</h1>
+  <h1 class="school">Amtoli Model School</h1>
   <div class="exam">{{EXAM_LABEL}}</div>
   <div class="meta">Class: {{CLASS}} &nbsp;&nbsp; Section: {{SECTION}}</div>
   <table><thead><tr>{{LEFT_HEADERS_TOP}}</tr><tr>{{LEFT_HEADERS_SUB}}</tr></thead><tbody>{{LEFT_ROWS}}</tbody></table>
   <div class="signatures"><div class="signature left-sign">Class Teacher</div></div>
 </section>
 <section class="panel right-panel">
-  <h1 class="school continuation">l School</h1>
   <table><thead><tr>{{RIGHT_HEADERS_TOP}}</tr><tr>{{RIGHT_HEADERS_SUB}}</tr></thead><tbody>{{RIGHT_ROWS}}</tbody></table>
   <div class="signatures"><div class="signature right-sign">Head Teacher</div></div>
 </section>
