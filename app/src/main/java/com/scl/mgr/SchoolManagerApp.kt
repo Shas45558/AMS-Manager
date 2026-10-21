@@ -3631,8 +3631,8 @@ private fun printDetailedExamMarksheetHtml(
     }
     val rankedTotals = resultsWithoutRanks.map { it.grandTotal }.distinct().sortedDescending()
 
-    fun subjectHeaderTop(subjectList: List<ExamSubjectSpec>): String = buildString {
-        append("<th rowspan=\"2\" class=\"roll\">Roll</th><th rowspan=\"2\" class=\"name\">Student Name</th>")
+    fun subjectHeaderTop(subjectList: List<ExamSubjectSpec>, includeStudent: Boolean = true): String = buildString {
+        if (includeStudent) append("<th rowspan=\"2\" class=\"roll\">Roll</th><th rowspan=\"2\" class=\"name\">Student Name</th>")
         subjectList.forEach { subject ->
             val span = when { subject.hasMcq -> 4; subject.countsForGpa -> 2; else -> 1 }
             append("<th colspan=\"$span\">${htmlEscape(subject.name)}</th>")
@@ -3647,9 +3647,9 @@ private fun printDetailedExamMarksheetHtml(
             }
         }
     }
-    fun rowsFor(subjectList: List<ExamSubjectSpec>, includeSummary: Boolean): String = resultsWithoutRanks.joinToString("\n") { result ->
+    fun rowsFor(subjectList: List<ExamSubjectSpec>, includeSummary: Boolean, includeStudent: Boolean = true): String = resultsWithoutRanks.joinToString("\n") { result ->
         val cells = buildString {
-            append("<td class=\"roll\">${htmlEscape(result.student.studentId)}</td><td class=\"name\">${htmlEscape(result.student.studentName)}</td>")
+            if (includeStudent) append("<td class=\"roll\">${htmlEscape(result.student.studentId)}</td><td class=\"name\">${htmlEscape(result.student.studentName)}</td>")
             subjectList.forEach { subject ->
                 val index = subjects.indexOfFirst { it.key == subject.key }
                 val mark = result.subjectMarks.getOrNull(index)
@@ -3674,7 +3674,7 @@ private fun printDetailedExamMarksheetHtml(
     }
 
     // Print as two landscape A4 panels that can be joined horizontally.
-    val splitAt = (subjects.size + 1) / 2
+    val splitAt = ((subjects.size * 0.70).toInt()).coerceIn(1, subjects.size - 1)
     val leftSubjects = subjects.take(splitAt)
     val rightSubjects = subjects.drop(splitAt)
     val jobName = "Class $className$section $examType Marksheet 2026"
@@ -3688,9 +3688,9 @@ private fun printDetailedExamMarksheetHtml(
         .replace("{{LEFT_HEADERS_TOP}}", subjectHeaderTop(leftSubjects))
         .replace("{{LEFT_HEADERS_SUB}}", subjectHeaderSub(leftSubjects))
         .replace("{{LEFT_ROWS}}", rowsFor(leftSubjects, includeSummary = false))
-        .replace("{{RIGHT_HEADERS_TOP}}", subjectHeaderTop(rightSubjects) + "<th rowspan=\"2\">Total</th><th rowspan=\"2\">M.E.A.</th><th rowspan=\"2\" class=\"grand\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail</th><th rowspan=\"2\">Rank</th>")
+        .replace("{{RIGHT_HEADERS_TOP}}", subjectHeaderTop(rightSubjects, includeStudent = false) + "<th rowspan=\"2\">Total</th><th rowspan=\"2\">M.E.A.</th><th rowspan=\"2\" class=\"grand\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail</th><th rowspan=\"2\">Rank</th>")
         .replace("{{RIGHT_HEADERS_SUB}}", subjectHeaderSub(rightSubjects))
-        .replace("{{RIGHT_ROWS}}", rowsFor(rightSubjects, includeSummary = true))
+        .replace("{{RIGHT_ROWS}}", rowsFor(rightSubjects, includeSummary = true, includeStudent = false))
     val webView = WebView(context)
     webView.settings.javaScriptEnabled = false
     webView.settings.defaultTextEncodingName = "UTF-8"
