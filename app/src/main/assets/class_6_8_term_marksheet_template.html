@@ -32,17 +32,17 @@ td.summary-num { font-weight: 600; }
 .left-sign { margin-left: 8mm; }
 .right-sign { margin-left: 0; }
 .note { margin-top: 2mm; font-size: 6pt; text-align: center; color: #444; }
-.right-panel { width: 89.1mm; padding-left: 0; padding-right: 0; }
-/* The second sheet is the remaining 30% of the joined 130% layout.
-   Fit its continuation columns into that printable width instead of drawing a
-   297mm table and clipping almost all of its columns. */
+.right-panel { width: 297mm; padding-left: 3mm; padding-right: 3mm; }
+/* Keep the continuation sheet at the same physical scale as page one.
+   The table is NOT compressed to the 30% glue strip; each mark cell remains
+   4.5mm wide. The remaining columns sit at the left edge of the second A4. */
 .right-panel table { width: max-content; max-width: none; table-layout: fixed; font-size: 6.3pt; }
 .right-panel th, .right-panel td { padding: 1px .35px; overflow-wrap: anywhere; word-break: break-word; }
 .right-panel > table { margin-top: 15mm; }
 .right-panel .exam, .right-panel .meta { display: none; }
 .right-panel .part { display: none; }
-.right-panel .signature { width: 35mm; max-width: 95%; }
-.right-panel .right-sign { margin-left: 45mm; }
+.right-panel .signature { width: 35mm; max-width: 35%; }
+.right-panel .right-sign { margin-left: 0; }
 </style>
 </head>
 <body>
