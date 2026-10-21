@@ -33,10 +33,13 @@ td.summary-num { font-weight: 600; }
 .right-sign { margin-left: 0; }
 .note { margin-top: 2mm; font-size: 6pt; text-align: center; color: #444; }
 .right-panel { width: 89.1mm; padding-left: 0; padding-right: 0; }
-.right-panel table { width: 100%; }
+/* Keep continuation table at the same scale as the first-page table. The panel clips the unused 70%. */
+.right-panel table { width: 297mm; table-layout: fixed; }
+.right-panel > table { margin-top: 15mm; }
 .right-panel .exam, .right-panel .meta { display: none; }
 .right-panel .part { display: none; }
 .right-panel .signature { width: 35mm; max-width: 95%; }
+.right-panel .right-sign { margin-left: 45mm; }
 </style>
 </head>
 <body>
