@@ -3189,7 +3189,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Professional Reports", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(if (reportType == "Student report cards") "Create result cards from the converted Amtoli Model School HTML template, then save them as PDF using Android print preview. Works offline." else "Create print-ready reports with the AMS Manager logo, report title, class details, date range, repeated table headings, page numbers, and signature lines.")
-        DropdownField("Report type", reportType, PDF_REPORT_TYPES) { reportType = it }
+        DropdownField("Report type", reportType, PDF_REPORT_TYPES) { reportType = it; if (it == "Exam marksheets" && examType == "Annual") examType = "First Term" }
         if (reportType == "SSC student lists") {
             DropdownField("SSC year", sscYear, availableSscYears) { sscYear = it }
         } else if (!teacherMode) {
@@ -3197,7 +3197,10 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             val sections = listOf("A", "B", "C", "D") + activeStudents.filter { it.className == className }.map { it.section }.distinct()
             DropdownField("Section", section, sections.distinct().sorted()) { section = it }
         } else Text("Assigned class: $assignedClass • Section: $assignedSection", style = MaterialTheme.typography.bodyMedium)
-        if (reportType == "Exam marksheets" || reportType == "Student report cards") DropdownField("Exam", displayExamType(className, examType), examOptionsForClass(className)) { examType = canonicalExamType(className, it) }
+        if (reportType == "Exam marksheets" || reportType == "Student report cards") {
+            val availableExams = if (reportType == "Exam marksheets" && className in listOf("6", "7", "8")) listOf("First Term", "Second Term") else examOptionsForClass(className)
+            DropdownField("Exam", displayExamType(className, examType), availableExams) { examType = canonicalExamType(className, it) }
+        }
         if (reportType == "Student report cards" && className !in listOf("6", "7", "8", "9", "10")) Text("The Amtoli result-card template is configured for Classes 6–10.", color = MaterialTheme.colorScheme.error)
         if (reportType == "Monthly exam reports") OutlinedTextField(value = month, onValueChange = { month = it.take(7) }, label = { Text("Month (YYYY-MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (reportType == "Attendance reports") {
@@ -3209,6 +3212,19 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 busy = true; message = "Preparing result cards…"
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
+                    if (reportType == "Exam marksheets" && className in listOf("6", "7", "8") && examType in listOf("First Term", "Second Term")) {
+                        require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
+                        val aliases = if (examType == "First Term") listOf("First Term", "1st Term") else listOf("Second Term", "2nd Term")
+                        val fetchedMarks = mutableListOf<ExamMark>()
+                        for (alias in aliases) fetchedMarks.addAll(repository.examMarksOnce(alias))
+                        val marks = fetchedMarks
+                            .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
+                            .groupBy { it.studentId to it.subjectKey }
+                            .mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
+                        printDetailedExamMarksheetHtml(context, selectedStudents, className, section, examType, marks)
+                        message = "Opened detailed $examType marksheet for Class $className Section $section in landscape print preview. Choose Save as PDF."
+                        return@launch
+                    }
                     if (reportType == "Student report cards") {
                         require(className in listOf("6", "7", "8", "9", "10")) { "The result-card template is configured for Classes 6–10." }
                         require(examType in listOf("First Term", "Second Term", "Annual")) { "Choose a valid exam for the selected class." }
@@ -3581,6 +3597,95 @@ private fun renderAmtoliCardHtml(
       ${if (examType == "Annual" && className.trim().removePrefix("Class ").trim() != "10") "<tr class=\"summary\"><td colspan=\"2\">Grand Total Marks Average:</td><td colspan=\"6\">${htmlEscape(grandTotalMarksAverage)}</td></tr>" else ""}</tbody></table>
       <div class="comment"><b>CLASS TEACHER’S COMMENT:</b></div><div class="signatures"><div class="signature">Class Teacher’s Signature</div><div class="signature">Head Teacher’s Signature</div><div class="signature">Parent’s Signature</div></div>
     </section>"""
+}
+
+private fun printDetailedExamMarksheetHtml(
+    context: Context,
+    students: List<Student>,
+    className: String,
+    section: String,
+    examType: String,
+    marks: Map<Pair<Long, String>, ExamMark>
+) {
+    val subjects = examSubjectsForClass(className)
+    data class StudentResult(val student: Student, val subjectMarks: List<ExamMark?>, val total: Int, val average: Double, val gpa: Double, val failCount: Int)
+    val results = students.map { student ->
+        val subjectMarks = subjects.map { marks[student.id to it.key] }
+        val total = subjects.indices.sumOf { index -> subjectMarks[index]?.let { examMarkTotal(it) } ?: 0 }
+        val graded = subjects.indices.filter { subjects[it].countsForGpa && subjectMarks[it] != null }
+        val failCount = graded.count { index -> gradeForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) == "F" }
+        val gpa = if (graded.isEmpty() || failCount > 0) 0.0 else graded.map { index -> gradePointForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) }.average().coerceAtMost(5.0)
+        val max = subjects.sumOf { it.max }
+        StudentResult(student, subjectMarks, total, if (max == 0) 0.0 else total * 100.0 / max, gpa, failCount)
+    }
+    val rankedTotals = results.map { it.total }.distinct().sortedDescending()
+    val headerTop = buildString {
+        append("<th rowspan=\"2\">Roll</th><th rowspan=\"2\" class=\"name\">Student Name</th>")
+        subjects.forEach { subject -> append("<th colspan=\"${if (subject.hasMcq) 4 else 2}\">${htmlEscape(subject.name)}</th>") }
+        append("<th rowspan=\"2\">Total</th><th rowspan=\"2\">Average</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail</th><th rowspan=\"2\">Rank</th>")
+    }
+    val headerSub = buildString {
+        subjects.forEach { subject ->
+            if (subject.hasMcq) append("<th>CQ</th><th>MCQ</th><th>Total</th><th>GPA</th>")
+            else append("<th>Total</th><th>GPA</th>")
+        }
+    }
+    val bodyRows = results.joinToString("\n") { result ->
+        val cells = buildString {
+            append("<td>${htmlEscape(result.student.studentId)}</td><td class=\"name\">${htmlEscape(result.student.studentName)}</td>")
+            subjects.forEachIndexed { index, subject ->
+                val mark = result.subjectMarks[index]
+                if (subject.hasMcq) {
+                    append("<td>${mark?.cq?.toString() ?: ""}</td><td>${mark?.mcq?.toString() ?: ""}</td>")
+                }
+                val obtained = mark?.let { examMarkTotal(it) }
+                append("<td>${obtained?.toString() ?: ""}</td><td>${if (mark == null) "" else String.format(java.util.Locale.US, "%.1f", gradePointForExam(obtained ?: 0, subject.max))}</td>")
+            }
+            append("<td>${if (result.subjectMarks.any { it != null }) result.total.toString() else ""}</td>")
+            append("<td>${if (result.subjectMarks.any { it != null }) String.format(java.util.Locale.US, "%.1f", result.average) else ""}</td>")
+            append("<td>${if (result.subjectMarks.any { it != null }) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td>")
+            append("<td>${if (result.subjectMarks.any { it != null }) result.failCount.toString() else ""}</td>")
+            append("<td>${if (result.subjectMarks.any { it != null }) (rankedTotals.indexOf(result.total) + 1).toString() else ""}</td>")
+        }
+        "<tr>$cells</tr>"
+    }
+    val jobName = "Class $className$section $examType Marksheet 2026"
+    val examLabel = if (examType == "First Term") "First Term Exam-2026" else "Second Term Exam-2026"
+    val html = """<!doctype html><html><head><meta charset="UTF-8"><style>
+      @page { size: A4 landscape; margin: 3mm; }
+      * { box-sizing: border-box; } html, body { margin: 0; padding: 0; color: #111; font-family: Arial, sans-serif; }
+      h1 { text-align: center; font-size: 12pt; margin: 0 0 1px; }
+      h2 { text-align: center; font-size: 8pt; margin: 0 0 2px; font-weight: 600; }
+      h3 { text-align: center; font-size: 7pt; margin: 0 0 3px; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 4.2pt; line-height: 1.05; }
+      th, td { border: .35px solid #222; padding: 1px .5px; text-align: center; overflow-wrap: anywhere; }
+      th { background: #e8e8e8; font-weight: 700; }
+      th.name, td.name { width: 28mm; text-align: left; }
+      th:first-child, td:first-child { width: 8mm; }
+      td.name { white-space: nowrap; overflow: hidden; }
+      tbody tr { height: 3mm; page-break-inside: avoid; break-inside: avoid; }
+      .signatures { display: flex; justify-content: space-between; margin: 7mm 8mm 0; font-size: 7pt; }
+      .signature { border-top: .7px solid #222; padding-top: 2px; width: 24%; text-align: center; }
+      </style></head><body><h1>Amtoli Model School</h1><h2>$examLabel</h2><h3>Class: ${htmlEscape(className)} &nbsp; Section: ${htmlEscape(section)}</h3>
+      <table><thead><tr>$headerTop</tr><tr>$headerSub</tr></thead><tbody>$bodyRows</tbody></table>
+      <div class="signatures"><div class="signature">Class Teacher</div><div class="signature">Head Teacher</div></div></body></html>"""
+    val webView = WebView(context)
+    webView.settings.javaScriptEnabled = false
+    webView.settings.defaultTextEncodingName = "UTF-8"
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String?) {
+            super.onPageFinished(view, url)
+            val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+            val adapter = view.createPrintDocumentAdapter(jobName.take(80))
+            val landscapeA4 = PrintAttributes.MediaSize.ISO_A4.asLandscape()
+            val attributes = PrintAttributes.Builder()
+                .setMediaSize(landscapeA4)
+                .setResolution(PrintAttributes.Resolution("ams_exam_marksheet", "AMS Exam Marksheet", 300, 300))
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS).build()
+            printManager.print(jobName.take(80), adapter, attributes)
+        }
+    }
+    webView.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
 }
 
 private fun printMonthlyExamReportHtml(context: Context, jobName: String, heading: String, tableHeader: String, rows: String) {
