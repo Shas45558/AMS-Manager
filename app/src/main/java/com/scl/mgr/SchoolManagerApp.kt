@@ -3608,67 +3608,89 @@ private fun printDetailedExamMarksheetHtml(
     marks: Map<Pair<Long, String>, ExamMark>
 ) {
     val subjects = examSubjectsForClass(className)
-    data class StudentResult(val student: Student, val subjectMarks: List<ExamMark?>, val total: Int, val average: Double, val gpa: Double, val failCount: Int)
-    val results = students.map { student ->
+    data class StudentResult(
+        val student: Student,
+        val subjectMarks: List<ExamMark?>,
+        val total: Int,
+        val monthlyEvaluationAverage: Double,
+        val grandTotal: Int,
+        val gpa: Double,
+        val failCount: Int
+    )
+    val resultsWithoutRanks = students.map { student ->
         val subjectMarks = subjects.map { marks[student.id to it.key] }
         val total = subjects.indices.sumOf { index -> subjectMarks[index]?.let { examMarkTotal(it) } ?: 0 }
         val graded = subjects.indices.filter { subjects[it].countsForGpa && subjectMarks[it] != null }
         val failCount = graded.count { index -> gradeForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) == "F" }
         val gpa = if (graded.isEmpty() || failCount > 0) 0.0 else graded.map { index -> gradePointForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) }.average().coerceAtMost(5.0)
         val max = subjects.sumOf { it.max }
-        StudentResult(student, subjectMarks, total, if (max == 0) 0.0 else total * 100.0 / max, gpa, failCount)
+        // Keep the existing Average calculation as requested, but label it M.E.A.
+        val mea = if (max == 0) 0.0 else total * 100.0 / max
+        val grandTotal = total + mea.roundToInt()
+        StudentResult(student, subjectMarks, total, mea, grandTotal, gpa, failCount)
     }
-    val rankedTotals = results.map { it.total }.distinct().sortedDescending()
-    val headerTop = buildString {
-        append("<th rowspan=\"2\">Roll</th><th rowspan=\"2\" class=\"name\">Student Name</th>")
-        subjects.forEach { subject -> append("<th colspan=\"${if (subject.hasMcq) 4 else 2}\">${htmlEscape(subject.name)}</th>") }
-        append("<th rowspan=\"2\">Total</th><th rowspan=\"2\">Average</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail</th><th rowspan=\"2\">Rank</th>")
-    }
-    val headerSub = buildString {
-        subjects.forEach { subject ->
-            if (subject.hasMcq) append("<th>CQ</th><th>MCQ</th><th>Total</th><th>GPA</th>")
-            else append("<th>Total</th><th>GPA</th>")
+    val rankedTotals = resultsWithoutRanks.map { it.grandTotal }.distinct().sortedDescending()
+
+    fun subjectHeaderTop(subjectList: List<ExamSubjectSpec>): String = buildString {
+        append("<th rowspan=\"2\" class=\"roll\">Roll</th><th rowspan=\"2\" class=\"name\">Student Name</th>")
+        subjectList.forEach { subject ->
+            val span = when { subject.hasMcq -> 4; subject.countsForGpa -> 2; else -> 1 }
+            append("<th colspan=\"$span\">${htmlEscape(subject.name)}</th>")
         }
     }
-    val bodyRows = results.joinToString("\n") { result ->
-        val cells = buildString {
-            append("<td>${htmlEscape(result.student.studentId)}</td><td class=\"name\">${htmlEscape(result.student.studentName)}</td>")
-            subjects.forEachIndexed { index, subject ->
-                val mark = result.subjectMarks[index]
-                if (subject.hasMcq) {
-                    append("<td>${mark?.cq?.toString() ?: ""}</td><td>${mark?.mcq?.toString() ?: ""}</td>")
-                }
-                val obtained = mark?.let { examMarkTotal(it) }
-                append("<td>${obtained?.toString() ?: ""}</td><td>${if (mark == null) "" else String.format(java.util.Locale.US, "%.1f", gradePointForExam(obtained ?: 0, subject.max))}</td>")
+    fun subjectHeaderSub(subjectList: List<ExamSubjectSpec>): String = buildString {
+        subjectList.forEach { subject ->
+            when {
+                subject.hasMcq -> append("<th>CQ</th><th>MCQ</th><th>Total</th><th>GPA</th>")
+                subject.countsForGpa -> append("<th>Total</th><th>GPA</th>")
+                else -> append("<th>Total</th>")
             }
-            append("<td>${if (result.subjectMarks.any { it != null }) result.total.toString() else ""}</td>")
-            append("<td>${if (result.subjectMarks.any { it != null }) String.format(java.util.Locale.US, "%.1f", result.average) else ""}</td>")
-            append("<td>${if (result.subjectMarks.any { it != null }) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td>")
-            append("<td>${if (result.subjectMarks.any { it != null }) result.failCount.toString() else ""}</td>")
-            append("<td>${if (result.subjectMarks.any { it != null }) (rankedTotals.indexOf(result.total) + 1).toString() else ""}</td>")
+        }
+    }
+    fun rowsFor(subjectList: List<ExamSubjectSpec>, includeSummary: Boolean): String = resultsWithoutRanks.joinToString("\n") { result ->
+        val cells = buildString {
+            append("<td class=\"roll\">${htmlEscape(result.student.studentId)}</td><td class=\"name\">${htmlEscape(result.student.studentName)}</td>")
+            subjectList.forEach { subject ->
+                val index = subjects.indexOfFirst { it.key == subject.key }
+                val mark = result.subjectMarks.getOrNull(index)
+                if (subject.hasMcq) append("<td>${mark?.cq?.toString() ?: \"\"}</td><td>${mark?.mcq?.toString() ?: \"\"}</td>")
+                val obtained = mark?.let { examMarkTotal(it) }
+                append("<td>${obtained?.toString() ?: \"\"}</td>")
+                if (subject.countsForGpa) {
+                    append("<td>${if (mark == null) \"\" else String.format(java.util.Locale.US, \"%.1f\", gradePointForExam(obtained ?: 0, subject.max))}</td>")
+                }
+            }
+            if (includeSummary) {
+                val hasMarks = result.subjectMarks.any { it != null }
+                append("<td class=\"summary-num\">${if (hasMarks) result.total.toString() else \"\"}</td>")
+                append("<td class=\"summary-num\">${if (hasMarks) String.format(java.util.Locale.US, \"%.1f\", result.monthlyEvaluationAverage) else \"\"}</td>")
+                append("<td class=\"summary-num grand\">${if (hasMarks) result.grandTotal.toString() else \"\"}</td>")
+                append("<td>${if (hasMarks) String.format(java.util.Locale.US, \"%.2f\", result.gpa) else \"\"}</td>")
+                append("<td>${if (hasMarks) result.failCount.toString() else \"\"}</td>")
+                append("<td>${if (hasMarks) (rankedTotals.indexOf(result.grandTotal) + 1).toString() else \"\"}</td>")
+            }
         }
         "<tr>$cells</tr>"
     }
+
+    // Print as two landscape A4 panels that can be joined horizontally.
+    val splitAt = (subjects.size + 1) / 2
+    val leftSubjects = subjects.take(splitAt)
+    val rightSubjects = subjects.drop(splitAt)
     val jobName = "Class $className$section $examType Marksheet 2026"
     val examLabel = if (examType == "First Term") "First Term Exam-2026" else "Second Term Exam-2026"
-    val html = """<!doctype html><html><head><meta charset="UTF-8"><style>
-      @page { size: A4 landscape; margin: 3mm; }
-      * { box-sizing: border-box; } html, body { margin: 0; padding: 0; color: #111; font-family: Arial, sans-serif; }
-      h1 { text-align: center; font-size: 12pt; margin: 0 0 1px; }
-      h2 { text-align: center; font-size: 8pt; margin: 0 0 2px; font-weight: 600; }
-      h3 { text-align: center; font-size: 7pt; margin: 0 0 3px; font-weight: 600; }
-      table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 4.2pt; line-height: 1.05; }
-      th, td { border: .35px solid #222; padding: 1px .5px; text-align: center; overflow-wrap: anywhere; }
-      th { background: #e8e8e8; font-weight: 700; }
-      th.name, td.name { width: 28mm; text-align: left; }
-      th:first-child, td:first-child { width: 8mm; }
-      td.name { white-space: nowrap; overflow: hidden; }
-      tbody tr { height: 3mm; page-break-inside: avoid; break-inside: avoid; }
-      .signatures { display: flex; justify-content: space-between; margin: 7mm 8mm 0; font-size: 7pt; }
-      .signature { border-top: .7px solid #222; padding-top: 2px; width: 24%; text-align: center; }
-      </style></head><body><h1>Amtoli Model School</h1><h2>$examLabel</h2><h3>Class: ${htmlEscape(className)} &nbsp; Section: ${htmlEscape(section)}</h3>
-      <table><thead><tr>$headerTop</tr><tr>$headerSub</tr></thead><tbody>$bodyRows</tbody></table>
-      <div class="signatures"><div class="signature">Class Teacher</div><div class="signature">Head Teacher</div></div></body></html>"""
+    val template = context.assets.open("class_6_8_term_marksheet_template.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    val html = template
+        .replace("{{SCHOOL_NAME}}", "Amtoli Model School")
+        .replace("{{EXAM_LABEL}}", htmlEscape(examLabel))
+        .replace("{{CLASS}}", htmlEscape(className))
+        .replace("{{SECTION}}", htmlEscape(section))
+        .replace("{{LEFT_HEADERS_TOP}}", subjectHeaderTop(leftSubjects))
+        .replace("{{LEFT_HEADERS_SUB}}", subjectHeaderSub(leftSubjects))
+        .replace("{{LEFT_ROWS}}", rowsFor(leftSubjects, includeSummary = false))
+        .replace("{{RIGHT_HEADERS_TOP}}", subjectHeaderTop(rightSubjects) + "<th rowspan=\"2\">Total</th><th rowspan=\"2\">M.E.A.</th><th rowspan=\"2\" class=\"grand\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail</th><th rowspan=\"2\">Rank</th>")
+        .replace("{{RIGHT_HEADERS_SUB}}", subjectHeaderSub(rightSubjects))
+        .replace("{{RIGHT_ROWS}}", rowsFor(rightSubjects, includeSummary = true))
     val webView = WebView(context)
     webView.settings.javaScriptEnabled = false
     webView.settings.defaultTextEncodingName = "UTF-8"

@@ -1,5 +1,5 @@
 Build status: NOT VERIFIED
 
-Result cards use an offline HTML template rendered by Android WebView and the native print framework. The result-card page is configured for A4 portrait with a 1.5 cm inset on all four sides and a thin black border. The card content is padded inside the border.
+Class 6-8 First Term and Second Term exam marksheets use the separate HTML asset class_6_8_term_marksheet_template.html rendered by Android WebView and the native print framework. The output is split into two A4 landscape panels so users can print both pages and join them horizontally. Oral displays only its Total column (no GPA). The result summary retains Total, renames Average to M.E.A., adds Grand Total = Total + rounded M.E.A., and ranks by Grand Total.
 
 No APK is included because the Gradle wrapper JAR is missing and Gradle is unavailable in this environment. Open in Android Studio with a working Gradle setup, sync, compile, and test before deployment.
