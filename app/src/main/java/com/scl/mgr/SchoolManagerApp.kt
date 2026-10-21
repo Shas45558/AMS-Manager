@@ -3653,21 +3653,21 @@ private fun printDetailedExamMarksheetHtml(
             subjectList.forEach { subject ->
                 val index = subjects.indexOfFirst { it.key == subject.key }
                 val mark = result.subjectMarks.getOrNull(index)
-                if (subject.hasMcq) append("<td>${mark?.cq?.toString() ?: \"\"}</td><td>${mark?.mcq?.toString() ?: \"\"}</td>")
+                if (subject.hasMcq) append("<td>${mark?.cq?.toString() ?: ""}</td><td>${mark?.mcq?.toString() ?: ""}</td>")
                 val obtained = mark?.let { examMarkTotal(it) }
-                append("<td>${obtained?.toString() ?: \"\"}</td>")
+                append("<td>${obtained?.toString() ?: ""}</td>")
                 if (subject.countsForGpa) {
-                    append("<td>${if (mark == null) \"\" else String.format(java.util.Locale.US, \"%.1f\", gradePointForExam(obtained ?: 0, subject.max))}</td>")
+                    append("<td>${if (mark == null) "" else String.format(java.util.Locale.US, "%.1f", gradePointForExam(obtained ?: 0, subject.max))}</td>")
                 }
             }
             if (includeSummary) {
                 val hasMarks = result.subjectMarks.any { it != null }
-                append("<td class=\"summary-num\">${if (hasMarks) result.total.toString() else \"\"}</td>")
-                append("<td class=\"summary-num\">${if (hasMarks) String.format(java.util.Locale.US, \"%.1f\", result.monthlyEvaluationAverage) else \"\"}</td>")
-                append("<td class=\"summary-num grand\">${if (hasMarks) result.grandTotal.toString() else \"\"}</td>")
-                append("<td>${if (hasMarks) String.format(java.util.Locale.US, \"%.2f\", result.gpa) else \"\"}</td>")
-                append("<td>${if (hasMarks) result.failCount.toString() else \"\"}</td>")
-                append("<td>${if (hasMarks) (rankedTotals.indexOf(result.grandTotal) + 1).toString() else \"\"}</td>")
+                append("<td class=\"summary-num\">${if (hasMarks) result.total.toString() else ""}</td>")
+                append("<td class=\"summary-num\">${if (hasMarks) String.format(java.util.Locale.US, "%.1f", result.monthlyEvaluationAverage) else ""}</td>")
+                append("<td class=\"summary-num grand\">${if (hasMarks) result.grandTotal.toString() else ""}</td>")
+                append("<td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td>")
+                append("<td>${if (hasMarks) result.failCount.toString() else ""}</td>")
+                append("<td>${if (hasMarks) (rankedTotals.indexOf(result.grandTotal) + 1).toString() else ""}</td>")
             }
         }
         "<tr>$cells</tr>"
