@@ -21,7 +21,10 @@ service cloud.firestore {
     function assigned(className, section) {
       return isEnabledTeacher()
         && get(teacherPath()).data.assignedClass == className
-        && get(teacherPath()).data.assignedSection == section;
+        && ((('assignedSections' in get(teacherPath()).data)
+          && get(teacherPath()).data.assignedSections is list
+          && section in get(teacherPath()).data.assignedSections)
+          || get(teacherPath()).data.assignedSection == section);
     }
     function sameOrNextClass(fromClass, toClass) {
       return fromClass == toClass

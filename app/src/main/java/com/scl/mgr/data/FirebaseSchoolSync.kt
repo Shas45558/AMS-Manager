@@ -9,6 +9,7 @@ import kotlinx.coroutines.tasks.await
 class FirebaseSchoolSync(private val db: AppDatabase) {
     private val firestore = FirebaseFirestore.getInstance()
     private val school = firestore.collection("schools").document(SCHOOL_ID)
+    private fun assignedSections(value: String): Set<String> = value.split(',', ';', '|').map { it.trim().uppercase() }.filter { it in setOf("A", "B") }.toSet()
 
     suspend fun sync(): SyncReport {
         val user = FirebaseAuth.getInstance().currentUser
@@ -29,8 +30,8 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
                 throw SecurityException("This account is not authorized to sync school records.")
             }
             assignedClass = profile.getString("assignedClass") ?: ""
-            assignedSection = profile.getString("assignedSection") ?: ""
-            if (assignedClass.isBlank() || assignedSection.isBlank()) throw SecurityException("The administrator has not assigned a class and section to this teacher.")
+            assignedSection = ((profile.get("assignedSections") as? List<*>)?.filterIsInstance<String>()?.joinToString(",")?.takeIf { it.isNotBlank() } ?: profile.getString("assignedSection")).orEmpty()
+            if (assignedClass.isBlank() || assignedSections(assignedSection).isEmpty()) throw SecurityException("The administrator has not assigned a class and section to this teacher.")
         } else if (user.isEmailVerified != true) {
             throw SecurityException("Verify the administrator email before syncing.")
         }
@@ -38,7 +39,8 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         // First apply explicit local deletions. Deletions are queued by the repository
         // and are sent to Firestore before the roster is downloaded.
         val pendingRows = db.pendingStudentDeletionDao().getAllOnce()
-        val eligiblePending = if (isAdmin) pendingRows else pendingRows.filter { it.className == assignedClass && it.section == assignedSection }
+        val assignedSectionValues = assignedSections(assignedSection)
+        val eligiblePending = if (isAdmin) pendingRows else pendingRows.filter { it.className == assignedClass && it.section in assignedSectionValues }
         val localPending = eligiblePending.map { it.studentId }.toSet()
         for (studentId in localPending) {
             school.collection("attendance").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
@@ -76,7 +78,7 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         // Promotion history is immutable audit data. Admin writes all history; teachers may upload
         // only history originating from their assigned class and section.
         if (isAdmin || assignedClass.isNotBlank()) {
-            val localHistory = db.studentPromotionHistoryDao().getAllOnce().filter { h -> isAdmin || (h.fromClass == assignedClass && h.fromSection == assignedSection) }
+            val localHistory = db.studentPromotionHistoryDao().getAllOnce().filter { h -> isAdmin || (h.fromClass == assignedClass && h.fromSection in assignedSectionValues) }
             for (h in localHistory) {
                 school.collection("promotionHistory").document(h.historyId).set(mapOf(
                     "historyId" to h.historyId, "studentId" to h.studentId, "studentName" to h.studentName,
@@ -106,11 +108,11 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         // authoritative for all records this account is allowed to see.
         val remoteStudentDocs = (if (isAdmin) school.collection("students").get()
             else school.collection("students").whereEqualTo("className", assignedClass)
-                .whereEqualTo("section", assignedSection).get()).await().documents
+                .whereIn("section", assignedSectionValues.toList()).get()).await().documents
         val remoteIds = remoteStudentDocs.mapNotNull { d -> (d.get("id") as? Number)?.toLong() ?: d.id.toLongOrNull() }.toSet()
         val localStudentsBeforeMerge = db.studentDao().getAllOnce()
         val pendingIds = db.pendingStudentUpsertDao().getAllOnce().map { it.studentId }.toSet()
-        val eligibleLocal = if (isAdmin) localStudentsBeforeMerge else localStudentsBeforeMerge.filter { it.className == assignedClass && it.section == assignedSection }
+        val eligibleLocal = if (isAdmin) localStudentsBeforeMerge else localStudentsBeforeMerge.filter { it.className == assignedClass && it.section in assignedSectionValues }
         eligibleLocal.filter { it.id !in remoteIds && it.id !in pendingIds && it.id !in localPending }.forEach { stale ->
             // A student can be absent from this class because of promotion or a
             // section change. Remove only the stale roster row; never erase history.
@@ -121,7 +123,7 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             val id = m.long("id") ?: d.id.toLongOrNull() ?: return@forEach
             db.studentDao().upsert(Student(id, m.str("studentName"), m.str("studentId"), m.str("className"), m.str("section"), m.str("gender"), m.str("religion"), m.str("fatherName"), m.str("address"), m.str("mobileNumber"), m.str("academicYear"), m.str("activeStatus").ifBlank { "active" }, m.str("sscYear")))
         }
-        val students = if (isAdmin) db.studentDao().getAllOnce() else db.studentDao().getAllOnce().filter { it.className == assignedClass && it.section == assignedSection }
+        val students = if (isAdmin) db.studentDao().getAllOnce() else db.studentDao().getAllOnce().filter { it.className == assignedClass && it.section in assignedSectionValues }
         val assignedIds = students.map { it.id }.toSet()
         val attendance = db.attendanceDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
         val monthly = db.monthlyExamDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
