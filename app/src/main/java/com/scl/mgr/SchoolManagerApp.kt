@@ -3213,18 +3213,25 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Exam marksheets" && isClass9Or10(className) &&
-                        ((className.trim().removePrefix("Class ").trim() == "9" && examType in listOf("First Term", "Second Term")) || (className.trim().removePrefix("Class ").trim() == "10" && examType in listOf("First Term", "Second Term", "Annual")))) {
+                        ((className.trim().removePrefix("Class ").trim() == "9" && examType in listOf("First Term", "Second Term", "Annual")) || (className.trim().removePrefix("Class ").trim() == "10" && examType in listOf("First Term", "Second Term", "Annual")))) {
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
                         val aliases = when (examType) {
                             "First Term" -> listOf("First Term", "1st Term")
                             "Second Term" -> listOf("Second Term", "2nd Term", "Pre-Test Exam", "PreTest")
-                            else -> listOf("Annual", "Annual Exam", "Test Exam", "Test")
+                            else -> listOf("Annual", "Annual Exam", "Annual Exam-2026", "Test Exam", "Test")
                         }
-                        val fetchedMarks = aliases.flatMap { repository.examMarksOnce(it) }
-                        val marks = fetchedMarks.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
+                        val annualClass9 = className.trim().removePrefix("Class ").trim() == "9" && examType == "Annual"
+                        val allTypes = if (annualClass9) aliases + listOf("First Term", "1st Term", "Second Term", "2nd Term") else aliases
+                        val fetchedMarks = allTypes.distinct().flatMap { repository.examMarksOnce(it) }
+                        fun mapFor(types: List<String>): Map<Pair<Long, String>, ExamMark> = fetchedMarks
+                            .filter { it.examType in types }
+                            .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
                             .groupBy { it.studentId to it.subjectKey }
-                            .mapValues { (_, list) -> list.firstOrNull { it.examType in aliases } ?: list.first() }
-                        printClass9_10ExamMarksheetHtml(context, selectedStudents, className, section, examType, marks)
+                            .mapValues { (_, list) -> list.firstOrNull { it.examType in types } ?: list.first() }
+                        val marks = mapFor(aliases)
+                        val firstMarks = if (annualClass9) mapFor(listOf("First Term", "1st Term")) else emptyMap()
+                        val secondMarks = if (annualClass9) mapFor(listOf("Second Term", "2nd Term")) else emptyMap()
+                        printClass9_10ExamMarksheetHtml(context, selectedStudents, className, section, examType, marks, firstMarks, secondMarks)
                         message = "Opened ${displayExamType(className, examType)} marksheet for Class $className Section $section in two-page landscape print preview. Choose Save as PDF."
                         return@launch
                     }
@@ -3785,10 +3792,13 @@ private fun printClass9_10ExamMarksheetHtml(
     className: String,
     section: String,
     examType: String,
-    marks: Map<Pair<Long, String>, ExamMark>
+    marks: Map<Pair<Long, String>, ExamMark>,
+    firstTermMarks: Map<Pair<Long, String>, ExamMark> = emptyMap(),
+    secondTermMarks: Map<Pair<Long, String>, ExamMark> = emptyMap()
 ) {
     val subjects = examSubjectsForClass(className)
     val isClass10 = className.trim().removePrefix("Class ").trim() == "10"
+    val isClass9Annual = className.trim().removePrefix("Class ").trim() == "9" && examType == "Annual"
     data class CellGroup(val title: String, val keys: List<String>, val columns: List<String>, val max: Int, val gpa: Boolean = true)
     val groups = mutableListOf<CellGroup>()
     groups += CellGroup("Bangla", listOf("bangla1", "bangla2"), listOf("B1 CQ", "B1 MCQ", "B2 CQ", "B2 MCQ", "Total", "GPA"), 200)
@@ -3798,10 +3808,14 @@ private fun printClass9_10ExamMarksheetHtml(
             if (spec.key == "ict" || !spec.hasMcq) listOf("Total") + if (spec.countsForGpa) listOf("GPA") else emptyList()
             else listOf("CQ", "MCQ", "Total", "GPA"), spec.max, spec.countsForGpa)
     }
-    data class Result(val student: Student, val marks: Map<String, ExamMark?>, val total: Int, val gpa: Double, val failCount: Int)
+    data class Result(val student: Student, val marks: Map<String, ExamMark?>, val total: Int, val gpa: Double, val failCount: Int, val firstTermTotal: Int, val secondTermTotal: Int, val mea: Double, val grandTotal: Int, val gta: Double)
     val results = students.map { student ->
         val byKey = subjects.associate { it.key to marks[student.id to it.key] }
         val subjectTotal = subjects.sumOf { spec -> byKey[spec.key]?.let(::examMarkTotal) ?: 0 }
+        val firstTotal = if (isClass9Annual) subjects.sumOf { spec -> firstTermMarks[student.id to spec.key]?.let(::examMarkTotal) ?: 0 } else 0
+        val secondTotal = if (isClass9Annual) subjects.sumOf { spec -> secondTermMarks[student.id to spec.key]?.let(::examMarkTotal) ?: 0 } else 0
+        val mea = subjectTotal * 100.0 / subjects.sumOf { it.max }.coerceAtLeast(1)
+        val grandTotal = if (isClass9Annual) subjectTotal + mea.roundToInt() + firstTotal + secondTotal else subjectTotal + mea.roundToInt()
         val gradedGroups = groups.filter { it.gpa }
         val groupGrades = gradedGroups.map { group ->
             val total = group.keys.sumOf { key -> byKey[key]?.let(::examMarkTotal) ?: 0 }
@@ -3809,9 +3823,9 @@ private fun printClass9_10ExamMarksheetHtml(
         }
         val failCount = groupGrades.count { (total, max) -> total <= 0 || gradeForExam(total, max) == "F" }
         val gpa = if (groupGrades.isEmpty() || failCount > 0) 0.0 else groupGrades.map { (total, max) -> gradePointForExam(total, max) }.average().coerceAtMost(5.0)
-        Result(student, byKey, subjectTotal, gpa, failCount)
+        Result(student, byKey, subjectTotal, gpa, failCount, firstTotal, secondTotal, mea, grandTotal, grandTotal / 3.0)
     }
-    val rankTotals = results.map { it.total }.distinct().sortedDescending()
+    val rankTotals = results.map { if (isClass9Annual) it.grandTotal else it.total }.distinct().sortedDescending()
     fun groupHeader(group: CellGroup) = "<th colspan=\"${group.columns.size}\">${htmlEscape(group.title)}</th>"
     fun groupSub(group: CellGroup) = group.columns.joinToString("") { "<th>${htmlEscape(it)}</th>" }
     fun groupCells(result: Result, group: CellGroup): String {
@@ -3836,7 +3850,7 @@ private fun printClass9_10ExamMarksheetHtml(
     // columns; page 2 has six summary columns, so account for those when choosing
     // the whole-subject split. This keeps the printable table widths visually equal.
     val totalSubjectColumns = leafColumns.sum()
-    val summaryColumnCount = if (isClass10) 4 else 6
+    val summaryColumnCount = when { isClass10 -> 4; isClass9Annual -> 9; else -> 6 }
     val identityColumnCount = 2
     val splitIndex = (1 until groups.size).minByOrNull { candidate ->
         val leftCount = leafColumns.take(candidate).sum() + identityColumnCount
@@ -3854,6 +3868,8 @@ private fun printClass9_10ExamMarksheetHtml(
     }
     val summaryHeaders = if (isClass10) {
         "<th rowspan=\"2\">Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail Sub. Count</th><th rowspan=\"2\">Rank</th>"
+    } else if (isClass9Annual) {
+        "<th rowspan=\"2\">Total</th><th rowspan=\"2\">Monthly Evaluation Average</th><th rowspan=\"2\">F.T.M.</th><th rowspan=\"2\">S.T.M.</th><th rowspan=\"2\">Grand Total</th><th rowspan=\"2\" class=\"gta\">G.T.A.</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail Sub. Count</th><th rowspan=\"2\">Rank</th>"
     } else {
         "<th rowspan=\"2\">Total</th><th rowspan=\"2\">Monthly Evaluation Average</th><th rowspan=\"2\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail Sub. Count</th><th rowspan=\"2\">Rank</th>"
     }
@@ -3863,9 +3879,11 @@ private fun printClass9_10ExamMarksheetHtml(
         val grand = result.total + mea.roundToInt()
         val subjectCells = rightGroups.joinToString("") { groupCells(result, it) }
         val summaryCells = if (isClass10) {
-            "<td class=\"sum\">${if (hasMarks) result.total else ""}</td><td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td><td>${if (hasMarks) result.failCount else ""}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else ""}</td>"
+            "<td class=\"sum\">${if (hasMarks) result.total else \"\"}</td><td>${if (hasMarks) String.format(java.util.Locale.US, \"%.2f\", result.gpa) else \"\"}</td><td>${if (hasMarks) result.failCount else \"\"}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else \"\"}</td>"
+        } else if (isClass9Annual) {
+            "<td class=\"sum\">${if (hasMarks) result.total else \"\"}</td><td class=\"sum\">${if (hasMarks) String.format(java.util.Locale.US, \"%.1f\", result.mea) else \"\"}</td><td class=\"sum\">${if (hasMarks) result.firstTermTotal else \"\"}</td><td class=\"sum\">${if (hasMarks) result.secondTermTotal else \"\"}</td><td class=\"sum grand\">${if (hasMarks) result.grandTotal else \"\"}</td><td class=\"sum\">${if (hasMarks) String.format(java.util.Locale.US, \"%.2f\", result.gta) else \"\"}</td><td>${if (hasMarks) String.format(java.util.Locale.US, \"%.2f\", result.gpa) else \"\"}</td><td>${if (hasMarks) result.failCount else \"\"}</td><td>${if (hasMarks) rankTotals.indexOf(result.grandTotal) + 1 else \"\"}</td>"
         } else {
-            "<td class=\"sum\">${if (hasMarks) result.total else ""}</td><td class=\"sum\">${if (hasMarks) String.format(java.util.Locale.US, "%.1f", mea) else ""}</td><td class=\"sum grand\">${if (hasMarks) grand else ""}</td><td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td><td>${if (hasMarks) result.failCount else ""}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else ""}</td>"
+            "<td class=\"sum\">${if (hasMarks) result.total else \"\"}</td><td class=\"sum\">${if (hasMarks) String.format(java.util.Locale.US, \"%.1f\", mea) else \"\"}</td><td class=\"sum grand\">${if (hasMarks) grand else \"\"}</td><td>${if (hasMarks) String.format(java.util.Locale.US, \"%.2f\", result.gpa) else \"\"}</td><td>${if (hasMarks) result.failCount else \"\"}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else \"\"}</td>"
         }
         "<tr>$subjectCells$summaryCells</tr>"
     }
