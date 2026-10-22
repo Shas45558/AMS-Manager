@@ -3198,7 +3198,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             DropdownField("Section", section, sections.distinct().sorted()) { section = it }
         } else Text("Assigned class: $assignedClass • Section: $assignedSection", style = MaterialTheme.typography.bodyMedium)
         if (reportType == "Exam marksheets" || reportType == "Student report cards") {
-            val availableExams = if (reportType == "Exam marksheets" && className in listOf("6", "7", "8")) listOf("First Term", "Second Term") else examOptionsForClass(className)
+            val availableExams = examOptionsForClass(className)
             DropdownField("Exam", displayExamType(className, examType), availableExams) { examType = canonicalExamType(className, it) }
         }
         if (reportType == "Student report cards" && className !in listOf("6", "7", "8", "9", "10")) Text("The Amtoli result-card template is configured for Classes 6–10.", color = MaterialTheme.colorScheme.error)
@@ -3212,16 +3212,26 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 busy = true; message = "Preparing result cards…"
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
-                    if (reportType == "Exam marksheets" && className in listOf("6", "7", "8") && examType in listOf("First Term", "Second Term")) {
+                    if (reportType == "Exam marksheets" && className in listOf("6", "7", "8") && examType in listOf("First Term", "Second Term", "Annual")) {
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
-                        val aliases = if (examType == "First Term") listOf("First Term", "1st Term") else listOf("Second Term", "2nd Term")
+                        val requestedTypes = when (examType) {
+                            "First Term" -> listOf("First Term", "1st Term")
+                            "Second Term" -> listOf("Second Term", "2nd Term")
+                            else -> listOf("Annual", "Annual Exam")
+                        }
                         val fetchedMarks = mutableListOf<ExamMark>()
-                        for (alias in aliases) fetchedMarks.addAll(repository.examMarksOnce(alias))
-                        val marks = fetchedMarks
-                            .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
-                            .groupBy { it.studentId to it.subjectKey }
-                            .mapValues { (_, list) -> list.firstOrNull { it.examType == examType } ?: list.first() }
-                        printDetailedExamMarksheetHtml(context, selectedStudents, className, section, examType, marks)
+                        for (alias in requestedTypes + listOf("First Term", "1st Term", "Second Term", "2nd Term")) {
+                            fetchedMarks.addAll(repository.examMarksOnce(alias))
+                        }
+                        fun marksFor(type: String, aliases: List<String>): Map<Pair<Long, String>, ExamMark> =
+                            fetchedMarks.filter { it.examType in aliases }
+                                .distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
+                                .groupBy { it.studentId to it.subjectKey }
+                                .mapValues { (_, list) -> list.firstOrNull { it.examType == type } ?: list.first() }
+                        val marks = marksFor(examType, requestedTypes)
+                        val firstTermMarks = marksFor("First Term", listOf("First Term", "1st Term"))
+                        val secondTermMarks = marksFor("Second Term", listOf("Second Term", "2nd Term"))
+                        printDetailedExamMarksheetHtml(context, selectedStudents, className, section, examType, marks, firstTermMarks, secondTermMarks)
                         message = "Opened detailed $examType marksheet for Class $className Section $section in landscape print preview. Choose Save as PDF."
                         return@launch
                     }
@@ -3605,15 +3615,21 @@ private fun printDetailedExamMarksheetHtml(
     className: String,
     section: String,
     examType: String,
-    marks: Map<Pair<Long, String>, ExamMark>
+    marks: Map<Pair<Long, String>, ExamMark>,
+    firstTermMarks: Map<Pair<Long, String>, ExamMark> = emptyMap(),
+    secondTermMarks: Map<Pair<Long, String>, ExamMark> = emptyMap()
 ) {
     val subjects = examSubjectsForClass(className)
+    val isAnnual = examType == "Annual"
     data class StudentResult(
         val student: Student,
         val subjectMarks: List<ExamMark?>,
         val total: Int,
         val monthlyEvaluationAverage: Double,
+        val firstTermTotal: Int,
+        val secondTermTotal: Int,
         val grandTotal: Int,
+        val grandTotalAverage: Double,
         val gpa: Double,
         val failCount: Int
     )
@@ -3624,10 +3640,13 @@ private fun printDetailedExamMarksheetHtml(
         val failCount = graded.count { index -> gradeForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) == "F" }
         val gpa = if (graded.isEmpty() || failCount > 0) 0.0 else graded.map { index -> gradePointForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) }.average().coerceAtMost(5.0)
         val max = subjects.sumOf { it.max }
-        // Keep the existing Average calculation as requested, but label it M.E.A.
+        // Keep the existing average calculation as requested, but label it M.E.A.
         val mea = if (max == 0) 0.0 else total * 100.0 / max
-        val grandTotal = total + mea.roundToInt()
-        StudentResult(student, subjectMarks, total, mea, grandTotal, gpa, failCount)
+        val firstTotal = if (isAnnual) subjects.sumOf { spec -> firstTermMarks[student.id to spec.key]?.let { examMarkTotal(it) } ?: 0 } else 0
+        val secondTotal = if (isAnnual) subjects.sumOf { spec -> secondTermMarks[student.id to spec.key]?.let { examMarkTotal(it) } ?: 0 } else 0
+        val grandTotal = if (isAnnual) total + mea.roundToInt() + firstTotal + secondTotal else total + mea.roundToInt()
+        val grandTotalAverage = grandTotal / 3.0
+        StudentResult(student, subjectMarks, total, mea, firstTotal, secondTotal, grandTotal, grandTotalAverage, gpa, failCount)
     }
     val rankedTotals = resultsWithoutRanks.map { it.grandTotal }.distinct().sortedDescending()
 
@@ -3664,7 +3683,12 @@ private fun printDetailedExamMarksheetHtml(
                 val hasMarks = result.subjectMarks.any { it != null }
                 append("<td class=\"summary-num\">${if (hasMarks) result.total.toString() else ""}</td>")
                 append("<td class=\"summary-num\">${if (hasMarks) String.format(java.util.Locale.US, "%.1f", result.monthlyEvaluationAverage) else ""}</td>")
+                if (isAnnual) {
+                    append("<td class=\"summary-num\">${if (hasMarks) result.firstTermTotal.toString() else ""}</td>")
+                    append("<td class=\"summary-num\">${if (hasMarks) result.secondTermTotal.toString() else ""}</td>")
+                }
                 append("<td class=\"summary-num grand\">${if (hasMarks) result.grandTotal.toString() else ""}</td>")
+                if (isAnnual) append("<td class=\"summary-num\">${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.grandTotalAverage) else ""}</td>")
                 append("<td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td>")
                 append("<td>${if (hasMarks) result.failCount.toString() else ""}</td>")
                 append("<td>${if (hasMarks) (rankedTotals.indexOf(result.grandTotal) + 1).toString() else ""}</td>")
@@ -3684,12 +3708,13 @@ private fun printDetailedExamMarksheetHtml(
     val continuationUsableMm = 89.1
     val cellMm = 6.8
     val firstPageCapacity = (firstPageUsableMm / cellMm).toInt()
-    val continuationCapacity = (continuationUsableMm / cellMm).toInt() - 6 // summary columns
+    val continuationCapacity = (continuationUsableMm / cellMm).toInt() - if (isAnnual) 9 else 6 // summary columns
     var splitAt = 0
     var firstPageColumns = 0
+    val effectiveFirstPageCapacity = firstPageCapacity + if (isAnnual) 3 else 0 // move three mark sub-columns from page two to page one for annual summary
     for (i in subjects.indices) {
         val count = leafColumnCount(subjects[i])
-        if (firstPageColumns + count > firstPageCapacity) break
+        if (firstPageColumns + count > effectiveFirstPageCapacity) break
         firstPageColumns += count
         splitAt = i + 1
     }
@@ -3697,14 +3722,16 @@ private fun printDetailedExamMarksheetHtml(
     // If the first sheet has spare width, move the next whole subject onto it
     // only when the subject still fits; keep all leaf columns the same width.
     while (splitAt < subjects.size - 1 &&
-        firstPageColumns + leafColumnCount(subjects[splitAt]) <= firstPageCapacity) {
+        firstPageColumns + leafColumnCount(subjects[splitAt]) <= effectiveFirstPageCapacity) {
         firstPageColumns += leafColumnCount(subjects[splitAt])
         splitAt++
     }
     val leftSubjects = subjects.take(splitAt)
     val rightSubjects = subjects.drop(splitAt)
     val jobName = "Class $className$section $examType Marksheet 2026"
-    val examLabel = if (examType == "First Term") "First Term Exam-2026" else "Second Term Exam-2026"
+    val examLabel = when (examType) { "First Term" -> "First Term Exam-2026"; "Second Term" -> "Second Term Exam-2026"; else -> "Annual Exam-2026" }
+    val annualSummaryHeaders = if (isAnnual) "<th rowspan=\"2\">F.T.M.</th><th rowspan=\"2\">S.T.M.</th>" else ""
+    val gtaHeader = if (isAnnual) "<th rowspan=\"2\">G.T.A.</th>" else ""
     val template = context.assets.open("class_6_8_term_marksheet_template.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
     val html = template
         .replace("{{SCHOOL_NAME}}", "Amtoli Model School")
@@ -3714,7 +3741,7 @@ private fun printDetailedExamMarksheetHtml(
         .replace("{{LEFT_HEADERS_TOP}}", subjectHeaderTop(leftSubjects))
         .replace("{{LEFT_HEADERS_SUB}}", subjectHeaderSub(leftSubjects))
         .replace("{{LEFT_ROWS}}", rowsFor(leftSubjects, includeSummary = false))
-        .replace("{{RIGHT_HEADERS_TOP}}", subjectHeaderTop(rightSubjects, includeStudent = false) + "<th rowspan=\"2\">Total</th><th rowspan=\"2\">M.E.A.</th><th rowspan=\"2\" class=\"grand\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail</th><th rowspan=\"2\">Rank</th>")
+        .replace("{{RIGHT_HEADERS_TOP}}", subjectHeaderTop(rightSubjects, includeStudent = false) + "<th rowspan=\"2\">Total</th><th rowspan=\"2\">M.E.A.</th>" + annualSummaryHeaders + "<th rowspan=\"2\" class=\"grand\">Grand Total</th>" + gtaHeader + "<th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail</th><th rowspan=\"2\">Rank</th>")
         .replace("{{RIGHT_HEADERS_SUB}}", subjectHeaderSub(rightSubjects))
         .replace("{{RIGHT_ROWS}}", rowsFor(rightSubjects, includeSummary = true, includeStudent = false))
     val webView = WebView(context)
