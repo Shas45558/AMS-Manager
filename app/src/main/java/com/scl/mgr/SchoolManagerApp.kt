@@ -3673,9 +3673,8 @@ private fun printDetailedExamMarksheetHtml(
         "<tr>$cells</tr>"
     }
 
-    // Use one physical width for every CQ/MCQ/Total/GPA cell on both sheets.
-    // Choose the split by rendered sub-column count (not subject count), leaving
-    // room for the six summary columns on the narrow continuation sheet.
+    // Use the same physical width for every mark cell on both sheets. Match the HTML CSS width (5.8mm).
+    // Choose the split by rendered sub-column count, preserving room for student identity on page one and summary columns on page two.
     fun leafColumnCount(subject: ExamSubjectSpec): Int = when {
         subject.hasMcq -> 4
         subject.countsForGpa -> 2
@@ -3683,7 +3682,7 @@ private fun printDetailedExamMarksheetHtml(
     }
     val firstPageUsableMm = 297.0 - 6.0 - 8.0 - 28.0
     val continuationUsableMm = 89.1
-    val cellMm = 4.5
+    val cellMm = 5.8
     val firstPageCapacity = (firstPageUsableMm / cellMm).toInt()
     val continuationCapacity = (continuationUsableMm / cellMm).toInt() - 6 // summary columns
     var splitAt = 0
