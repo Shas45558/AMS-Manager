@@ -308,7 +308,11 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         teacherMode = activeRole == "Teacher",
                         assignedClass = authPrefs.getString("assigned_class", "") ?: "",
                         assignedSection = authPrefs.getString("assigned_section", "") ?: "",
-                        onAdd = { navController.navigate("student/add") },
+                        assignedSections = (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it in listOf("A", "B") },
+                        onAdd = { sectionToAdd ->
+                            authPrefs.edit().putString("student_form_section", sectionToAdd).apply()
+                            navController.navigate("student/add")
+                        },
                         onOpen = { id -> navController.navigate("student/$id") }
                     )
                 }
@@ -990,10 +994,11 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
 }
 
 @Composable
-private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
+private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, assignedSections: List<String> = listOf(assignedSection).filter { it.isNotBlank() }, onAdd: (String) -> Unit, onOpen: (Long) -> Unit) {
     var query by remember { mutableStateOf("") }
     var classFilter by rememberSaveable { mutableStateOf("All") }
-    var sectionFilter by rememberSaveable { mutableStateOf("All") }
+    var sectionFilter by rememberSaveable { mutableStateOf(assignedSection.ifBlank { assignedSections.firstOrNull().orEmpty() }) }
+    val allowedSections = (assignedSections.ifEmpty { listOf(assignedSection) }).map { it.trim() }.filter { it in listOf("A", "B") }.distinct().sorted()
     var genderFilter by rememberSaveable { mutableStateOf("All") }
     var religionFilter by rememberSaveable { mutableStateOf("All") }
     val allStudents by repository.students(query).collectAsState(initial = emptyList())
@@ -1001,7 +1006,7 @@ private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, a
     val classOptions = listOf("All") + activeAll.map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 })
     val sectionOptions = listOf("All") + activeAll.filter { classFilter == "All" || it.className == classFilter }.map { it.section }.distinct().sorted()
     val students = allStudents.filter { student ->
-        (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank() && student.className == assignedClass && student.section == assignedSection)) &&
+        (!teacherMode || (assignedClass.isNotBlank() && student.className == assignedClass && student.section in allowedSections && student.section == sectionFilter)) &&
         (teacherMode || classFilter == "All" || student.className == classFilter) &&
         (teacherMode || sectionFilter == "All" || student.section == sectionFilter) &&
         (genderFilter == "All" || student.gender.equals(genderFilter, true)) &&
@@ -1016,21 +1021,26 @@ private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, a
                     Box(Modifier.weight(1f)) { DropdownField("Section", sectionFilter, sectionOptions) { sectionFilter = it } }
                 }
             } else {
-                Text("Assigned class: $assignedClass • Section: $assignedSection", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
+                Text("Assigned class: $assignedClass", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
+                if (allowedSections.size > 1) {
+                    DropdownField("Assigned Section", sectionFilter, allowedSections) { sectionFilter = it }
+                } else if (allowedSections.isNotEmpty()) {
+                    Text("Assigned section: ${allowedSections.first()}", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
+                }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { DropdownField("Gender", genderFilter, listOf("All", "Boy", "Girl")) { genderFilter = it } }
                 Box(Modifier.weight(1f)) { DropdownField("Religion", religionFilter, listOf("All", "Muslim", "Hindu", "Christian", "Buddhist", "Other")) { religionFilter = it } }
             }
             if (students.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (teacherMode && (assignedClass.isBlank() || assignedSection.isBlank())) "No class/section assigned. Contact the administrator." else if (query.isBlank()) "No students match these filters." else "No students found.") }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (teacherMode && (assignedClass.isBlank() || allowedSections.isEmpty())) "No class/section assigned. Contact the administrator." else if (query.isBlank()) "No students match these filters." else "No students found.") }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(students, key = { it.id }) { student -> StudentCard(student) { onOpen(student.id) } }
                 }
             }
         }
-        if (!teacherMode || (assignedClass.isNotBlank() && assignedSection.isNotBlank())) FloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) { Icon(Icons.Default.Add, contentDescription = "Add student") }
+        if (!teacherMode || (assignedClass.isNotBlank() && allowedSections.isNotEmpty())) FloatingActionButton(onClick = { onAdd(if (teacherMode) sectionFilter else "") }, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) { Icon(Icons.Default.Add, contentDescription = "Add student") }
     }
 }
 
@@ -1136,7 +1146,7 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
     var name by remember { mutableStateOf("") }
     var idText by remember { mutableStateOf("") }
     var className by remember { mutableStateOf(if (teacherMode) assignedClass else prefs.getString("class", "") ?: "") }
-    var section by remember { mutableStateOf(if (teacherMode) assignedSection else prefs.getString("section", "") ?: "") }
+    var section by remember { mutableStateOf(if (teacherMode) (prefs.getString("student_form_section", null)?.takeIf { it in assignedSections } ?: assignedSection) else prefs.getString("section", "") ?: "") }
     var gender by remember { mutableStateOf(prefs.getString("gender", "") ?: "") }
     var religion by remember { mutableStateOf(prefs.getString("religion", "") ?: "") }
     var father by remember { mutableStateOf("") }
@@ -1207,6 +1217,7 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
                 prefs.edit()
                     .putString("class", className)
                     .putString("section", section)
+                    .remove("student_form_section")
                     .putString("gender", gender)
                     .putString("religion", religion)
                     .apply()
