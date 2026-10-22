@@ -3213,15 +3213,19 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
                     if (reportType == "Exam marksheets" && isClass9Or10(className) &&
-                        ((className.trim() == "9" && examType in listOf("First Term", "Second Term")) || (className.trim() == "10" && examType == "First Term"))) {
+                        ((className.trim().removePrefix("Class ").trim() == "9" && examType in listOf("First Term", "Second Term")) || (className.trim().removePrefix("Class ").trim() == "10" && examType in listOf("First Term", "Second Term", "Annual")))) {
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
-                        val aliases = if (examType == "First Term") listOf("First Term", "1st Term") else listOf("Second Term", "2nd Term")
+                        val aliases = when (examType) {
+                            "First Term" -> listOf("First Term", "1st Term")
+                            "Second Term" -> listOf("Second Term", "2nd Term", "Pre-Test Exam", "PreTest")
+                            else -> listOf("Annual", "Annual Exam", "Test Exam", "Test")
+                        }
                         val fetchedMarks = aliases.flatMap { repository.examMarksOnce(it) }
                         val marks = fetchedMarks.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
                             .groupBy { it.studentId to it.subjectKey }
                             .mapValues { (_, list) -> list.firstOrNull { it.examType in aliases } ?: list.first() }
                         printClass9_10ExamMarksheetHtml(context, selectedStudents, className, section, examType, marks)
-                        message = "Opened $examType marksheet for Class $className Section $section in two-page landscape print preview. Choose Save as PDF."
+                        message = "Opened ${displayExamType(className, examType)} marksheet for Class $className Section $section in two-page landscape print preview. Choose Save as PDF."
                         return@launch
                     }
                     if (reportType == "Exam marksheets" && className in listOf("6", "7", "8") && examType in listOf("First Term", "Second Term", "Annual")) {
@@ -3832,7 +3836,7 @@ private fun printClass9_10ExamMarksheetHtml(
     // columns; page 2 has six summary columns, so account for those when choosing
     // the whole-subject split. This keeps the printable table widths visually equal.
     val totalSubjectColumns = leafColumns.sum()
-    val summaryColumnCount = 6
+    val summaryColumnCount = if (isClass10) 4 else 6
     val identityColumnCount = 2
     val splitIndex = (1 until groups.size).minByOrNull { candidate ->
         val leftCount = leafColumns.take(candidate).sum() + identityColumnCount
@@ -3848,19 +3852,33 @@ private fun printClass9_10ExamMarksheetHtml(
             list.joinToString("") { groupCells(result, it) }
         "<tr>$cells</tr>"
     }
-    val summaryHeaders = "<th rowspan=\"2\">Total</th><th rowspan=\"2\">Monthly Evaluation</th><th rowspan=\"2\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail Sub. Count</th><th rowspan=\"2\">Rank</th>"
+    val summaryHeaders = if (isClass10) {
+        "<th rowspan=\"2\">Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail Sub. Count</th><th rowspan=\"2\">Rank</th>"
+    } else {
+        "<th rowspan=\"2\">Total</th><th rowspan=\"2\">Monthly Evaluation Average</th><th rowspan=\"2\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail Sub. Count</th><th rowspan=\"2\">Rank</th>"
+    }
     fun rightRowsWithSummary(): String = results.joinToString("") { result ->
         val hasMarks = result.marks.values.any { it != null }
         val mea = result.total * 100.0 / subjects.sumOf { it.max }.coerceAtLeast(1)
         val grand = result.total + mea.roundToInt()
         val subjectCells = rightGroups.joinToString("") { groupCells(result, it) }
-        val summaryCells = "<td class=\"sum\">${if (hasMarks) result.total else ""}</td><td class=\"sum\">${if (hasMarks) String.format(java.util.Locale.US, "%.1f", mea) else ""}</td><td class=\"sum grand\">${if (hasMarks) grand else ""}</td><td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td><td>${if (hasMarks) result.failCount else ""}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else ""}</td>"
+        val summaryCells = if (isClass10) {
+            "<td class=\"sum\">${if (hasMarks) result.total else ""}</td><td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td><td>${if (hasMarks) result.failCount else ""}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else ""}</td>"
+        } else {
+            "<td class=\"sum\">${if (hasMarks) result.total else ""}</td><td class=\"sum\">${if (hasMarks) String.format(java.util.Locale.US, "%.1f", mea) else ""}</td><td class=\"sum grand\">${if (hasMarks) grand else ""}</td><td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td><td>${if (hasMarks) result.failCount else ""}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else ""}</td>"
+        }
         "<tr>$subjectCells$summaryCells</tr>"
     }
-    val examLabel = if (examType == "First Term") "First Term Exam-2026" else "Second Term Exam-2026"
-    val jobName = "Class $className$section $examType Marksheet 2026"
+    val displayExam = if (isClass10) displayExamType(className, examType) else examType
+    val examLabel = when (displayExam) {
+        "First Term" -> "First Term Exam-2026"
+        "Second Term", "Pre-Test Exam" -> "Pre-Test Exam-2026".takeIf { isClass10 } ?: "Second Term Exam-2026"
+        "Annual", "Test Exam" -> "Test Exam-2026".takeIf { isClass10 } ?: "Annual Exam-2026"
+        else -> "$displayExam-2026"
+    }
+    val jobName = "Class $className$section $displayExam Marksheet 2026"
     val html = """<!doctype html><html><head><meta charset="UTF-8"><style>
-      @page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,sans-serif;color:#111}.panel{width:297mm;height:210mm;padding:4mm;overflow:hidden;page-break-after:always;break-after:page;position:relative}.panel:last-child{page-break-after:auto;break-after:auto}.head{text-align:center;margin-bottom:3mm}.school{font-size:13pt;font-weight:bold;margin:0 0 1mm}.meta{font-size:8pt;margin:0 0 1mm}.exam{font-size:9pt;font-weight:bold}table{border-collapse:collapse;table-layout:fixed;width:100%;font-size:6.2pt;line-height:1.05}th,td{border:.45px solid #222;width:auto;min-width:0;max-width:none;padding:1px .3px;text-align:center;overflow-wrap:anywhere;vertical-align:middle}th{background:#e7e7e7;font-weight:bold}th.roll,td.roll{width:8mm;min-width:8mm;max-width:8mm}th.name,td.name{width:28mm;min-width:28mm;max-width:28mm;text-align:left}td.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}tbody tr{height:3.4mm}.summary{margin-top:3mm}.sum{font-weight:600}.grand{background:#ddd;font-weight:bold}.signatures{display:flex;align-items:flex-end;margin-top:7mm;font-size:7.5pt}.signature{width:36mm;border-top:.7px solid #222;padding-top:1.5mm;text-align:center}.left-sign{margin-left:8mm}.continuation table{margin-top:15mm}.continuation .head{display:none}
+      @page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,sans-serif;color:#111}.panel{width:297mm;height:210mm;padding:4mm;overflow:hidden;page-break-after:always;break-after:page;position:relative}.panel:last-child{page-break-after:auto;break-after:auto}.head{text-align:center;margin-bottom:3mm}.school{font-size:13pt;font-weight:bold;margin:0 0 1mm}.meta{font-size:8pt;margin:0 0 1mm}.exam{font-size:9pt;font-weight:bold}table{border-collapse:collapse;table-layout:fixed;width:100%;font-size:6.2pt;line-height:1.05}th,td{border:.45px solid #222;width:auto;min-width:0;max-width:none;padding:1px .3px;text-align:center;overflow-wrap:anywhere;vertical-align:middle}th{background:#e7e7e7;font-weight:bold}th.roll,td.roll{width:8mm;min-width:8mm;max-width:8mm}th.name,td.name{width:28mm;min-width:28mm;max-width:28mm;text-align:left}td.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}tbody tr{height:3.4mm}.summary{margin-top:3mm}.sum{font-weight:600}.grand{background:#ddd;font-weight:bold}.signatures{display:flex;align-items:flex-end;margin-top:7mm;font-size:7.5pt}.signature{width:36mm;border-top:.7px solid #222;padding-top:1.5mm;text-align:center}.left-sign{margin-left:8mm}.continuation table{margin-top:15mm}.continuation .head{display:none}.continuation .signatures{justify-content:flex-end;padding-right:8mm}
       </style></head><body><section class="panel"><div class="head"><h1 class="school">Amtoli Model School</h1><div class="meta">Class: ${htmlEscape(className)} &nbsp;&nbsp; Section: ${htmlEscape(section)}</div><div class="exam">${htmlEscape(examLabel)}</div></div><table><thead><tr>${headerTop(leftGroups, true)}</tr><tr>${headerSub(leftGroups)}</tr></thead><tbody>${rows(leftGroups, true)}</tbody></table><div class="signatures"><div class="signature left-sign">Class Teacher</div></div></section><section class="panel continuation"><table><thead><tr>${headerTop(rightGroups, false)}$summaryHeaders</tr><tr>${headerSub(rightGroups)}</tr></thead><tbody>${rightRowsWithSummary()}</tbody></table><div class="signatures"><div class="signature">Head Teacher</div></div></section></body></html>"""
     val webView = WebView(context)
     webView.settings.javaScriptEnabled = false
