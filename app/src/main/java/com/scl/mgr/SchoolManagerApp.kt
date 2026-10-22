@@ -3676,7 +3676,7 @@ private fun printDetailedExamMarksheetHtml(
                 val obtained = mark?.let { examMarkTotal(it) }
                 append("<td>${obtained?.toString() ?: ""}</td>")
                 if (subject.countsForGpa) {
-                    append("<td>${if (mark == null) "" else String.format(java.util.Locale.US, "%.1f", gradePointForExam(obtained ?: 0, subject.max))}</td>")
+                    append("<td>${if (mark == null) "" else gradeForExam(obtained ?: 0, subject.max)}</td>")
                 }
             }
             if (includeSummary) {
@@ -3731,7 +3731,7 @@ private fun printDetailedExamMarksheetHtml(
     val jobName = "Class $className$section $examType Marksheet 2026"
     val examLabel = when (examType) { "First Term" -> "First Term Exam-2026"; "Second Term" -> "Second Term Exam-2026"; else -> "Annual Exam-2026" }
     val annualSummaryHeaders = if (isAnnual) "<th rowspan=\"2\">F.T.M.</th><th rowspan=\"2\">S.T.M.</th>" else ""
-    val gtaHeader = if (isAnnual) "<th rowspan=\"2\">G.T.A.</th>" else ""
+    val gtaHeader = if (isAnnual) "<th rowspan=\"2\" class=\"gta\">G.T.A.</th>" else ""
     val template = context.assets.open("class_6_8_term_marksheet_template.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
     val html = template
         .replace("{{SCHOOL_NAME}}", "Amtoli Model School")
