@@ -3212,6 +3212,18 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                 busy = true; message = "Preparing result cards…"
                 try {
                     val selectedStudents = filtered.sortedWith(compareBy({ it.studentId.toIntOrNull() ?: Int.MAX_VALUE }, { it.studentName.lowercase() }))
+                    if (reportType == "Exam marksheets" && isClass9Or10(className) &&
+                        ((className.trim() == "9" && examType in listOf("First Term", "Second Term")) || (className.trim() == "10" && examType == "First Term"))) {
+                        require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
+                        val aliases = if (examType == "First Term") listOf("First Term", "1st Term") else listOf("Second Term", "2nd Term")
+                        val fetchedMarks = aliases.flatMap { repository.examMarksOnce(it) }
+                        val marks = fetchedMarks.distinctBy { Triple(it.studentId, it.subjectKey, it.examType) }
+                            .groupBy { it.studentId to it.subjectKey }
+                            .mapValues { (_, list) -> list.firstOrNull { it.examType in aliases } ?: list.first() }
+                        printClass9_10ExamMarksheetHtml(context, selectedStudents, className, section, examType, marks)
+                        message = "Opened $examType marksheet for Class $className Section $section in two-page landscape print preview. Choose Save as PDF."
+                        return@launch
+                    }
                     if (reportType == "Exam marksheets" && className in listOf("6", "7", "8") && examType in listOf("First Term", "Second Term", "Annual")) {
                         require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
                         val requestedTypes = when (examType) {
@@ -3758,6 +3770,100 @@ private fun printDetailedExamMarksheetHtml(
                 .setResolution(PrintAttributes.Resolution("ams_exam_marksheet", "AMS Exam Marksheet", 300, 300))
                 .setMinMargins(PrintAttributes.Margins.NO_MARGINS).build()
             printManager.print(jobName.take(80), adapter, attributes)
+        }
+    }
+    webView.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
+}
+
+private fun printClass9_10ExamMarksheetHtml(
+    context: Context,
+    students: List<Student>,
+    className: String,
+    section: String,
+    examType: String,
+    marks: Map<Pair<Long, String>, ExamMark>
+) {
+    val subjects = examSubjectsForClass(className)
+    val isClass10 = className.trim().removePrefix("Class ").trim() == "10"
+    data class CellGroup(val title: String, val keys: List<String>, val columns: List<String>, val max: Int, val gpa: Boolean = true)
+    val groups = mutableListOf<CellGroup>()
+    groups += CellGroup("Bangla", listOf("bangla1", "bangla2"), listOf("B1 CQ", "B1 MCQ", "B2 CQ", "B2 MCQ", "Total", "GPA"), 200)
+    groups += CellGroup("English", listOf("english1", "english2"), listOf("Eng 1st", "Eng 2nd", "Total", "GPA"), 200)
+    subjects.filter { it.key !in setOf("bangla1", "bangla2", "english1", "english2") }.forEach { spec ->
+        groups += CellGroup(spec.name, listOf(spec.key),
+            if (spec.key == "ict" || !spec.hasMcq) listOf("Total") + if (spec.countsForGpa) listOf("GPA") else emptyList()
+            else listOf("CQ", "MCQ", "Total", "GPA"), spec.max, spec.countsForGpa)
+    }
+    data class Result(val student: Student, val marks: Map<String, ExamMark?>, val total: Int, val gpa: Double, val failCount: Int)
+    val results = students.map { student ->
+        val byKey = subjects.associate { it.key to marks[student.id to it.key] }
+        val subjectTotal = subjects.sumOf { spec -> byKey[spec.key]?.let(::examMarkTotal) ?: 0 }
+        val gradedGroups = groups.filter { it.gpa }
+        val groupGrades = gradedGroups.map { group ->
+            val total = group.keys.sumOf { key -> byKey[key]?.let(::examMarkTotal) ?: 0 }
+            total to group.max
+        }
+        val failCount = groupGrades.count { (total, max) -> total <= 0 || gradeForExam(total, max) == "F" }
+        val gpa = if (groupGrades.isEmpty() || failCount > 0) 0.0 else groupGrades.map { (total, max) -> gradePointForExam(total, max) }.average().coerceAtMost(5.0)
+        Result(student, byKey, subjectTotal, gpa, failCount)
+    }
+    val rankTotals = results.map { it.total }.distinct().sortedDescending()
+    fun groupHeader(group: CellGroup) = "<th colspan=\"${group.columns.size}\">${htmlEscape(group.title)}</th>"
+    fun groupSub(group: CellGroup) = group.columns.joinToString("") { "<th>${htmlEscape(it)}</th>" }
+    fun groupCells(result: Result, group: CellGroup): String {
+        val a = result.marks[group.keys[0]]
+        val b = group.keys.getOrNull(1)?.let { result.marks[it] }
+        return when (group.title) {
+            "Bangla" -> "<td>${a?.cq?.toString().orEmpty()}</td><td>${a?.mcq?.toString().orEmpty()}</td><td>${b?.cq?.toString().orEmpty()}</td><td>${b?.mcq?.toString().orEmpty()}</td><td>${if (a != null || b != null) ((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0)).toString() else ""}</td><td>${if (a != null || b != null) gradeForExam((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0), 200) else ""}</td>"
+            "English" -> "<td>${a?.let(::examMarkTotal)?.toString().orEmpty()}</td><td>${b?.let(::examMarkTotal)?.toString().orEmpty()}</td><td>${if (a != null || b != null) ((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0)).toString() else ""}</td><td>${if (a != null || b != null) gradeForExam((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0), 200) else ""}</td>"
+            else -> {
+                val spec = subjects.first { it.key == group.keys.first() }
+                val total = a?.let(::examMarkTotal)
+                buildString {
+                    if (spec.key != "ict" && spec.hasMcq) append("<td>${a?.cq?.toString().orEmpty()}</td><td>${a?.mcq?.toString().orEmpty()}</td>")
+                    append("<td>${total?.toString().orEmpty()}</td>")
+                    if (spec.countsForGpa) append("<td>${if (total != null) gradeForExam(total, spec.max) else ""}</td>")
+                }
+            }
+        }
+    }
+    val leafColumns = groups.map { it.columns.size }
+    // Split at a whole subject boundary; the continuation page has no duplicate student identity columns.
+    val splitIndex = groups.indices.firstOrNull { i -> leafColumns.take(i + 1).sum() > 18 }?.coerceAtLeast(1) ?: (groups.size / 2).coerceAtLeast(1)
+    val leftGroups = groups.take(splitIndex)
+    val rightGroups = groups.drop(splitIndex)
+    fun headerTop(list: List<CellGroup>, identity: Boolean) = (if (identity) "<th rowspan=\"2\" class=\"roll\">Roll No</th><th rowspan=\"2\" class=\"name\">Student Name</th>" else "") + list.joinToString("") { groupHeader(it) }
+    fun headerSub(list: List<CellGroup>) = list.joinToString("") { groupSub(it) }
+    fun rows(list: List<CellGroup>, identity: Boolean) = results.joinToString("") { result ->
+        val cells = (if (identity) "<td class=\"roll\">${htmlEscape(result.student.studentId)}</td><td class=\"name\">${htmlEscape(result.student.studentName)}</td>" else "") +
+            list.joinToString("") { groupCells(result, it) }
+        "<tr>$cells</tr>"
+    }
+    val summaryHeaders = "<th rowspan=\"2\">Total</th><th rowspan=\"2\">Monthly Evaluation</th><th rowspan=\"2\">Grand Total</th><th rowspan=\"2\">GPA</th><th rowspan=\"2\">Fail Sub. Count</th><th rowspan=\"2\">Rank</th>"
+    fun rightRowsWithSummary(): String = results.joinToString("") { result ->
+        val hasMarks = result.marks.values.any { it != null }
+        val mea = result.total * 100.0 / subjects.sumOf { it.max }.coerceAtLeast(1)
+        val grand = result.total + mea.roundToInt()
+        val subjectCells = rightGroups.joinToString("") { groupCells(result, it) }
+        val summaryCells = "<td class=\"sum\">${if (hasMarks) result.total else ""}</td><td class=\"sum\">${if (hasMarks) String.format(java.util.Locale.US, "%.1f", mea) else ""}</td><td class=\"sum grand\">${if (hasMarks) grand else ""}</td><td>${if (hasMarks) String.format(java.util.Locale.US, "%.2f", result.gpa) else ""}</td><td>${if (hasMarks) result.failCount else ""}</td><td>${if (hasMarks) rankTotals.indexOf(result.total) + 1 else ""}</td>"
+        "<tr>$subjectCells$summaryCells</tr>"
+    }
+    val examLabel = if (examType == "First Term") "First Term Exam-2026" else "Second Term Exam-2026"
+    val jobName = "Class $className$section $examType Marksheet 2026"
+    val html = """<!doctype html><html><head><meta charset="UTF-8"><style>
+      @page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,sans-serif;color:#111}.panel{width:297mm;height:210mm;padding:4mm;overflow:hidden;page-break-after:always;break-after:page;position:relative}.panel:last-child{page-break-after:auto;break-after:auto}.head{text-align:center;margin-bottom:3mm}.school{font-size:13pt;font-weight:bold;margin:0 0 1mm}.meta{font-size:8pt;margin:0 0 1mm}.exam{font-size:9pt;font-weight:bold}table{border-collapse:collapse;table-layout:fixed;width:max-content;font-size:6.2pt;line-height:1.05}th,td{border:.45px solid #222;width:6.8mm;min-width:6.8mm;max-width:6.8mm;padding:1px .3px;text-align:center;overflow-wrap:anywhere;vertical-align:middle}th{background:#e7e7e7;font-weight:bold}th.roll,td.roll{width:8mm;min-width:8mm;max-width:8mm}th.name,td.name{width:28mm;min-width:28mm;max-width:28mm;text-align:left}td.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}tbody tr{height:3.4mm}.summary{margin-top:3mm}.sum{font-weight:600}.grand{background:#ddd;font-weight:bold}.signatures{display:flex;align-items:flex-end;margin-top:7mm;font-size:7.5pt}.signature{width:36mm;border-top:.7px solid #222;padding-top:1.5mm;text-align:center}.left-sign{margin-left:8mm}.continuation table{margin-top:15mm}.continuation .head{display:none}
+      </style></head><body><section class="panel"><div class="head"><h1 class="school">Amtoli Model School</h1><div class="meta">Class: ${htmlEscape(className)} &nbsp;&nbsp; Section: ${htmlEscape(section)}</div><div class="exam">${htmlEscape(examLabel)}</div></div><table><thead><tr>${headerTop(leftGroups, true)}</tr><tr>${headerSub(leftGroups)}</tr></thead><tbody>${rows(leftGroups, true)}</tbody></table><div class="signatures"><div class="signature left-sign">Class Teacher</div></div></section><section class="panel continuation"><table><thead><tr>${headerTop(rightGroups, false)}$summaryHeaders</tr><tr>${headerSub(rightGroups)}</tr></thead><tbody>${rightRowsWithSummary()}</tbody></table><div class="signatures"><div class="signature">Head Teacher</div></div></section></body></html>"""
+    val webView = WebView(context)
+    webView.settings.javaScriptEnabled = false
+    webView.settings.defaultTextEncodingName = "UTF-8"
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String?) {
+            val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+            val adapter = view.createPrintDocumentAdapter(jobName.take(80))
+            val attrs = PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4.asLandscape())
+                .setResolution(PrintAttributes.Resolution("ams_exam_marksheet_9_10", "AMS Exam Marksheet", 300, 300))
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS).build()
+            printManager.print(jobName.take(80), adapter, attrs)
         }
     }
     webView.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
