@@ -16,15 +16,14 @@ service cloud.firestore {
         && get(teacherPath()).data.assignedClass is string
         && get(teacherPath()).data.assignedSection is string
         && get(teacherPath()).data.assignedClass != ''
-        && get(teacherPath()).data.assignedSection != '';
+        && (get(teacherPath()).data.assignedSection != ''
+          || (get(teacherPath()).data.assignedSections is list && get(teacherPath()).data.assignedSections.size() > 0));
     }
     function assigned(className, section) {
       return isEnabledTeacher()
         && get(teacherPath()).data.assignedClass == className
-        && ((('assignedSections' in get(teacherPath()).data)
-          && get(teacherPath()).data.assignedSections is list
-          && section in get(teacherPath()).data.assignedSections)
-          || get(teacherPath()).data.assignedSection == section);
+        && (get(teacherPath()).data.assignedSection == section
+          || (get(teacherPath()).data.assignedSections is list && section in get(teacherPath()).data.assignedSections));
     }
     function sameOrNextClass(fromClass, toClass) {
       return fromClass == toClass
