@@ -3828,8 +3828,17 @@ private fun printClass9_10ExamMarksheetHtml(
         }
     }
     val leafColumns = groups.map { it.columns.size }
-    // Split at a whole subject boundary; the continuation page has no duplicate student identity columns.
-    val splitIndex = groups.indices.firstOrNull { i -> leafColumns.take(i + 1).sum() > 18 }?.coerceAtLeast(1) ?: (groups.size / 2).coerceAtLeast(1)
+    // Balance the usable column counts across both A4 pages. Page 1 has two identity
+    // columns; page 2 has six summary columns, so account for those when choosing
+    // the whole-subject split. This keeps the printable table widths visually equal.
+    val totalSubjectColumns = leafColumns.sum()
+    val summaryColumnCount = 6
+    val identityColumnCount = 2
+    val splitIndex = (1 until groups.size).minByOrNull { candidate ->
+        val leftCount = leafColumns.take(candidate).sum() + identityColumnCount
+        val rightCount = totalSubjectColumns - leafColumns.take(candidate).sum() + summaryColumnCount
+        kotlin.math.abs(leftCount - rightCount)
+    } ?: (groups.size / 2).coerceAtLeast(1)
     val leftGroups = groups.take(splitIndex)
     val rightGroups = groups.drop(splitIndex)
     fun headerTop(list: List<CellGroup>, identity: Boolean) = (if (identity) "<th rowspan=\"2\" class=\"roll\">Roll No</th><th rowspan=\"2\" class=\"name\">Student Name</th>" else "") + list.joinToString("") { groupHeader(it) }
@@ -3851,7 +3860,7 @@ private fun printClass9_10ExamMarksheetHtml(
     val examLabel = if (examType == "First Term") "First Term Exam-2026" else "Second Term Exam-2026"
     val jobName = "Class $className$section $examType Marksheet 2026"
     val html = """<!doctype html><html><head><meta charset="UTF-8"><style>
-      @page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,sans-serif;color:#111}.panel{width:297mm;height:210mm;padding:4mm;overflow:hidden;page-break-after:always;break-after:page;position:relative}.panel:last-child{page-break-after:auto;break-after:auto}.head{text-align:center;margin-bottom:3mm}.school{font-size:13pt;font-weight:bold;margin:0 0 1mm}.meta{font-size:8pt;margin:0 0 1mm}.exam{font-size:9pt;font-weight:bold}table{border-collapse:collapse;table-layout:fixed;width:max-content;font-size:6.2pt;line-height:1.05}th,td{border:.45px solid #222;width:6.8mm;min-width:6.8mm;max-width:6.8mm;padding:1px .3px;text-align:center;overflow-wrap:anywhere;vertical-align:middle}th{background:#e7e7e7;font-weight:bold}th.roll,td.roll{width:8mm;min-width:8mm;max-width:8mm}th.name,td.name{width:28mm;min-width:28mm;max-width:28mm;text-align:left}td.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}tbody tr{height:3.4mm}.summary{margin-top:3mm}.sum{font-weight:600}.grand{background:#ddd;font-weight:bold}.signatures{display:flex;align-items:flex-end;margin-top:7mm;font-size:7.5pt}.signature{width:36mm;border-top:.7px solid #222;padding-top:1.5mm;text-align:center}.left-sign{margin-left:8mm}.continuation table{margin-top:15mm}.continuation .head{display:none}
+      @page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,sans-serif;color:#111}.panel{width:297mm;height:210mm;padding:4mm;overflow:hidden;page-break-after:always;break-after:page;position:relative}.panel:last-child{page-break-after:auto;break-after:auto}.head{text-align:center;margin-bottom:3mm}.school{font-size:13pt;font-weight:bold;margin:0 0 1mm}.meta{font-size:8pt;margin:0 0 1mm}.exam{font-size:9pt;font-weight:bold}table{border-collapse:collapse;table-layout:fixed;width:100%;font-size:6.2pt;line-height:1.05}th,td{border:.45px solid #222;width:auto;min-width:0;max-width:none;padding:1px .3px;text-align:center;overflow-wrap:anywhere;vertical-align:middle}th{background:#e7e7e7;font-weight:bold}th.roll,td.roll{width:8mm;min-width:8mm;max-width:8mm}th.name,td.name{width:28mm;min-width:28mm;max-width:28mm;text-align:left}td.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}tbody tr{height:3.4mm}.summary{margin-top:3mm}.sum{font-weight:600}.grand{background:#ddd;font-weight:bold}.signatures{display:flex;align-items:flex-end;margin-top:7mm;font-size:7.5pt}.signature{width:36mm;border-top:.7px solid #222;padding-top:1.5mm;text-align:center}.left-sign{margin-left:8mm}.continuation table{margin-top:15mm}.continuation .head{display:none}
       </style></head><body><section class="panel"><div class="head"><h1 class="school">Amtoli Model School</h1><div class="meta">Class: ${htmlEscape(className)} &nbsp;&nbsp; Section: ${htmlEscape(section)}</div><div class="exam">${htmlEscape(examLabel)}</div></div><table><thead><tr>${headerTop(leftGroups, true)}</tr><tr>${headerSub(leftGroups)}</tr></thead><tbody>${rows(leftGroups, true)}</tbody></table><div class="signatures"><div class="signature left-sign">Class Teacher</div></div></section><section class="panel continuation"><table><thead><tr>${headerTop(rightGroups, false)}$summaryHeaders</tr><tr>${headerSub(rightGroups)}</tr></thead><tbody>${rightRowsWithSummary()}</tbody></table><div class="signatures"><div class="signature">Head Teacher</div></div></section></body></html>"""
     val webView = WebView(context)
     webView.settings.javaScriptEnabled = false
