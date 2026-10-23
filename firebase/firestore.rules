@@ -2,11 +2,20 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
+    // The original verified Google account is the sole primary admin.
     function isAdmin() {
       return signedIn()
         && request.auth.token.email == 'shas45558@gmail.com'
         && request.auth.token.email_verified == true;
     }
+    function coAdminPath() { return /databases/$(database)/documents/adminAccounts/$(request.auth.uid); }
+    function isEnabledCoAdmin() {
+      return signedIn() && exists(coAdminPath())
+        && get(coAdminPath()).data.role == 'co-admin'
+        && get(coAdminPath()).data.schoolId == 'ams-manager-b1434'
+        && get(coAdminPath()).data.enabled == true;
+    }
+    function hasAdminAccess() { return isAdmin() || isEnabledCoAdmin(); }
     function teacherPath() { return /databases/$(database)/documents/teacherAccounts/$(request.auth.uid); }
     function isEnabledTeacher() {
       return signedIn() && exists(teacherPath())
@@ -46,46 +55,52 @@ service cloud.firestore {
           get(/databases/$(database)/documents/schools/ams-manager-b1434/students/$(studentId)).data.section
         );
     }
-    match /teacherAccounts/{uid} {
+    match /adminAccounts/{uid} {
+      // Co-admins can read only their own profile. Only the primary admin may
+      // create, edit, disable, or delete any co-admin account.
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow create, update, delete: if isAdmin();
     }
+    match /teacherAccounts/{uid} {
+      allow read: if hasAdminAccess() || (signedIn() && request.auth.uid == uid);
+      allow create, update, delete: if hasAdminAccess();
+    }
     match /teacherCredentials/{document=**} { allow read, write: if false; }
     match /schools/{schoolId}/students/{studentId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
-      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
-      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && request.resource.data.section == resource.data.section && sameOrNextClass(resource.data.className, request.resource.data.className)));
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && request.resource.data.section == resource.data.section && sameOrNextClass(resource.data.className, request.resource.data.className)));
     }
     // School closures are managed by the verified admin and readable by enabled teachers
     // so attendance and individual report cards use the same shared calendar.
     match /schools/{schoolId}/schoolClosures/{closureId} {
-      allow read: if schoolId == 'ams-manager-b1434' && (isAdmin() || isEnabledTeacher());
-      allow create, update, delete: if schoolId == 'ams-manager-b1434' && isAdmin();
+      allow read: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || isEnabledTeacher());
+      allow create, update, delete: if schoolId == 'ams-manager-b1434' && hasAdminAccess();
     }
     match /schools/{schoolId}/promotionHistory/{historyId} {
-      allow read: if schoolId == 'ams-manager-b1434' && isAdmin();
-      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.fromClass, request.resource.data.fromSection));
-      allow delete: if schoolId == 'ams-manager-b1434' && isAdmin();
+      allow read: if schoolId == 'ams-manager-b1434' && hasAdminAccess();
+      allow create, update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.fromClass, request.resource.data.fromSection));
+      allow delete: if schoolId == 'ams-manager-b1434' && hasAdminAccess();
     }
     // Teacher queries must constrain className + section, because Firestore rules
     // are not filters and cannot authorize a broad studentId-only query.
     match /schools/{schoolId}/attendance/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
-      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
-      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/monthlyExams/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
-      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
-      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/examMarks/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
-      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
-      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/{document=**} {
-      allow read, write: if schoolId == 'ams-manager-b1434' && isAdmin();
+      allow read, write: if schoolId == 'ams-manager-b1434' && hasAdminAccess();
     }
     match /{document=**} { allow read, write: if false; }
   }

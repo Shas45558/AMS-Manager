@@ -19,7 +19,12 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             throw SecurityException("This Firebase account no longer exists.", e)
         }
         val email = user.email?.trim()?.lowercase()
-        val isAdmin = email == ADMIN_EMAIL
+        val isPrimaryAdmin = email == ADMIN_EMAIL && user.isEmailVerified == true
+        val isCoAdmin = if (!isPrimaryAdmin) {
+            val profile = firestore.collection("adminAccounts").document(user.uid).get(Source.SERVER).await()
+            profile.exists() && profile.getString("role") == "co-admin" && profile.getString("schoolId") == SCHOOL_ID && profile.getBoolean("enabled") == true
+        } else false
+        val isAdmin = isPrimaryAdmin || isCoAdmin
         var assignedClass = ""
         var assignedSection = ""
         var assignedSections = emptySet<String>()
@@ -33,8 +38,8 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             assignedSection = profile.getString("assignedSection") ?: ""
             assignedSections = ((profile.get("assignedSections") as? List<*>)?.filterIsInstance<String>() ?: assignedSection.split(",")).map { it.trim() }.filter { it in listOf("A", "B") }.toSet()
             if (assignedClass.isBlank() || assignedSections.isEmpty()) throw SecurityException("The administrator has not assigned a class and section to this teacher.")
-        } else if (user.isEmailVerified != true) {
-            throw SecurityException("Verify the administrator email before syncing.")
+        } else if (!isAdmin) {
+            throw SecurityException("This account is not an enabled administrator or co-admin.")
         }
 
         // First apply explicit local deletions. Deletions are queued by the repository

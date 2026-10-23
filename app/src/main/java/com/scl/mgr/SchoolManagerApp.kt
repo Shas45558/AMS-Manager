@@ -464,7 +464,7 @@ private fun LoginScreen(
         Text("Sign in with Firebase", style = MaterialTheme.typography.bodyMedium)
         Button(onClick = { error = ""; busy = true; signInLauncher.launch(signInClient.signInIntent) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Admin — Google Sign-In") }
         HorizontalDivider()
-        Text("Teacher login", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("Teacher / Co-admin login", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(teacherId, { teacherId = it.trim(); error = "" }, label = { Text("User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, { password = it; error = "" }, label = { Text("Password") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Button(onClick = {
@@ -478,23 +478,30 @@ private fun LoginScreen(
                         val auth = FirebaseAuth.getInstance()
                         auth.signInWithEmailAndPassword(email, password).await()
                         val uid = auth.currentUser?.uid ?: throw IllegalStateException("Sign-in did not return a user")
-                        val profile = FirebaseFirestore.getInstance().collection("teacherAccounts").document(uid).get(com.google.firebase.firestore.Source.SERVER).await()
-                        if (!profile.exists() || profile.getString("role") != "teacher" || profile.getString("schoolId") != "ams-manager-b1434" || profile.getBoolean("enabled") != true) {
-                            auth.signOut()
-                            throw SecurityException("This account is not an enabled teacher account.")
+                        val firestore = FirebaseFirestore.getInstance()
+                        val profile = firestore.collection("teacherAccounts").document(uid).get(com.google.firebase.firestore.Source.SERVER).await()
+                        if (profile.exists() && profile.getString("role") == "teacher" && profile.getString("schoolId") == "ams-manager-b1434" && profile.getBoolean("enabled") == true) {
+                            // Always refresh the assignment from the server at login.
+                            val assignedClass = profile.getString("assignedClass")?.trim().orEmpty()
+                            val assignedSection = profile.getString("assignedSection")?.trim().orEmpty()
+                            authPrefs.edit()
+                                .putString("assigned_class", assignedClass)
+                                .putString("assigned_section", assignedSection)
+                                .putString("assigned_sections", ((profile.get("assignedSections") as? List<*>)?.filterIsInstance<String>() ?: assignedSection.split(",").map { it.trim() }.filter { it.isNotBlank() }).joinToString(","))
+                                .putBoolean("teacher_verified_online", true)
+                                .putBoolean("force_teacher_login", false)
+                                .apply()
+                            finishLogin("Teacher")
+                        } else {
+                            val coAdmin = firestore.collection("adminAccounts").document(uid).get(com.google.firebase.firestore.Source.SERVER).await()
+                            if (coAdmin.exists() && coAdmin.getString("role") == "co-admin" && coAdmin.getString("schoolId") == "ams-manager-b1434" && coAdmin.getBoolean("enabled") == true) {
+                                authPrefs.edit().putBoolean("teacher_verified_online", false).putBoolean("force_teacher_login", false).apply()
+                                finishLogin("Admin")
+                            } else {
+                                auth.signOut()
+                                throw SecurityException("This account is not an enabled teacher or co-admin account.")
+                            }
                         }
-                        // Always refresh the assignment from the server at login. Without this,
-                        // a teacher could keep blank/stale SharedPreferences after an admin assigns a class.
-                        val assignedClass = profile.getString("assignedClass")?.trim().orEmpty()
-                        val assignedSection = profile.getString("assignedSection")?.trim().orEmpty()
-                        authPrefs.edit()
-                            .putString("assigned_class", assignedClass)
-                            .putString("assigned_section", assignedSection)
-                            .putString("assigned_sections", ((profile.get("assignedSections") as? List<*>)?.filterIsInstance<String>() ?: assignedSection.split(",").map { it.trim() }.filter { it.isNotBlank() }).joinToString(","))
-                            .putBoolean("teacher_verified_online", true)
-                            .putBoolean("force_teacher_login", false)
-                            .apply()
-                        finishLogin("Teacher")
                     } catch (e: Exception) { error = "Teacher login failed: ${e.message ?: "Check credentials and internet."}" }
                     finally { busy = false }
                 }
@@ -531,16 +538,31 @@ private fun AuthorizationScreen() {
     var loadingTeachers by remember { mutableStateOf(false) }
     var displayNameEdits by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var assignmentEdits by remember { mutableStateOf<Map<String, Pair<String, Set<String>>>>(emptyMap()) }
+    var canManageTeachers by remember { mutableStateOf(false) }
+    var isPrimaryAdmin by remember { mutableStateOf(false) }
+    var coAdminUserId by remember { mutableStateOf("") }
+    var coAdminPassword by remember { mutableStateOf("") }
+    var coAdminConfirmPassword by remember { mutableStateOf("") }
+    var coAdmins by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    suspend fun refreshAdminAccess() {
+        val current = FirebaseAuth.getInstance().currentUser
+        isPrimaryAdmin = current?.email?.equals("shas45558@gmail.com", ignoreCase = true) == true && current.isEmailVerified == true
+        canManageTeachers = isPrimaryAdmin || (current != null && runCatching {
+            val profile = firestore.collection("adminAccounts").document(current.uid).get(com.google.firebase.firestore.Source.SERVER).await()
+            profile.exists() && profile.getString("role") == "co-admin" && profile.getString("schoolId") == "ams-manager-b1434" && profile.getBoolean("enabled") == true
+        }.getOrDefault(false))
+        if (isPrimaryAdmin) {
+            coAdmins = runCatching { firestore.collection("adminAccounts").whereEqualTo("role", "co-admin").get().await().documents.map { it.getString("userId").orEmpty() to (it.getString("displayName") ?: it.getString("userId").orEmpty()) }.sortedBy { it.first } }.getOrDefault(emptyList())
+        }
+    }
 
     fun loadTeachers() {
-        val admin = FirebaseAuth.getInstance().currentUser
-        if (admin?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || admin.isEmailVerified != true) {
-            message = "Only the verified administrator can view teacher accounts."
-            return
-        }
         loadingTeachers = true
         scope.launch {
             try {
+                refreshAdminAccess()
+                if (!canManageTeachers) throw SecurityException("Only the main admin or an enabled co-admin can manage teacher accounts.")
                 val result = firestore.collection("teacherAccounts").whereEqualTo("role", "teacher").get().await()
                 teachers = result.documents.mapNotNull { doc ->
                     val id = doc.getString("userId") ?: return@mapNotNull null
@@ -555,17 +577,56 @@ private fun AuthorizationScreen() {
         }
     }
 
-    LaunchedEffect(Unit) { loadTeachers() }
+    LaunchedEffect(Unit) { refreshAdminAccess(); loadTeachers() }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (isPrimaryAdmin) {
+            Text("Co-admin Accounts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Create a co-admin with full admin access. Co-admins cannot create or manage other co-admin accounts.", style = MaterialTheme.typography.bodyMedium)
+            OutlinedTextField(coAdminUserId, { coAdminUserId = it.trim().lowercase() }, label = { Text("Co-admin User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(coAdminPassword, { coAdminPassword = it }, label = { Text("Password (at least 10 characters)") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(coAdminConfirmPassword, { coAdminConfirmPassword = it }, label = { Text("Confirm co-admin password") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            Button(enabled = !busy && isPrimaryAdmin, onClick = {
+                val uidText = coAdminUserId.trim().lowercase()
+                when {
+                    !uidText.matches(Regex("^[a-z0-9._-]{3,40}$")) -> message = "Co-admin User ID must be 3–40 characters: letters, numbers, dot, underscore or hyphen."
+                    coAdminPassword.length < 10 || coAdminPassword.length > 128 -> message = "Use a password between 10 and 128 characters."
+                    coAdminPassword != coAdminConfirmPassword -> message = "Co-admin passwords do not match."
+                    else -> { busy = true; message = ""; scope.launch {
+                        var secondaryAuth: FirebaseAuth? = null
+                        try {
+                            val current = FirebaseAuth.getInstance().currentUser
+                            if (current?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || current.isEmailVerified != true) throw SecurityException("Only the verified main admin can create co-admins.")
+                            val creatorApp = try { FirebaseApp.getInstance("coAdminCreator") } catch (_: IllegalStateException) { FirebaseApp.initializeApp(context, FirebaseApp.getInstance().options, "coAdminCreator") ?: FirebaseApp.getInstance("coAdminCreator") }
+                            secondaryAuth = FirebaseAuth.getInstance(creatorApp)
+                            val created = secondaryAuth.createUserWithEmailAndPassword("$uidText@ams-manager.invalid", coAdminPassword).await()
+                            val newUid = created.user?.uid ?: throw IllegalStateException("Firebase did not return a co-admin UID.")
+                            try {
+                                firestore.collection("adminAccounts").document(newUid).set(mapOf("userId" to uidText, "displayName" to uidText, "role" to "co-admin", "schoolId" to "ams-manager-b1434", "enabled" to true, "createdBy" to current.uid, "createdAt" to com.google.firebase.Timestamp.now())).await()
+                            } catch (e: Exception) { try { created.user?.delete()?.await() } catch (_: Exception) { }; throw e }
+                            secondaryAuth.signOut()
+                            message = "Co-admin account created. Share the User ID and password securely."
+                            coAdminUserId = ""; coAdminPassword = ""; coAdminConfirmPassword = ""
+                            refreshAdminAccess()
+                        } catch (e: Exception) { secondaryAuth?.signOut(); message = "Could not create co-admin: ${e.message ?: e.javaClass.simpleName}" }
+                        finally { busy = false }
+                    } }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Creating…" else "Create Co-admin") }
+            if (coAdmins.isNotEmpty()) {
+                Text("Existing co-admins", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                coAdmins.forEach { (id, name) -> Text("• $id — $name") }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        }
         Text("Teacher Accounts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Signed-in administrator: shas45558@gmail.com. You can view teacher IDs, update their display names, and enable or disable access.")
+        Text(if (isPrimaryAdmin) "Signed in as the main administrator. You can manage teachers and create co-admins." else "Signed in as co-admin. You can manage school records and teacher accounts, but cannot create co-admins.")
         OutlinedTextField(userId, { userId = it.trim().lowercase() }, label = { Text("New User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, { password = it }, label = { Text("Password (at least 10 characters)") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         OutlinedTextField(confirmPassword, { confirmPassword = it }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Button(enabled = !busy, onClick = {
             val admin = FirebaseAuth.getInstance().currentUser
             when {
-                admin?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || admin.isEmailVerified != true -> message = "Only the verified administrator shas45558@gmail.com can create accounts."
+                !canManageTeachers -> message = "Only the main admin or an enabled co-admin can create teacher accounts."
                 !userId.matches(Regex("^[a-z0-9._-]{3,40}$")) -> message = "User ID must be 3–40 characters: letters, numbers, dot, underscore or hyphen."
                 password.length < 10 || password.length > 128 -> message = "Use a password between 10 and 128 characters."
                 password != confirmPassword -> message = "Passwords do not match."
