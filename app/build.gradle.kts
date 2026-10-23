@@ -14,8 +14,8 @@ android {
         applicationId = "com.ams.mgr"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.52"
+        versionCode = 27
+        versionName = "1.53"
     }
 
     // Release is optimized to reduce the final APK size.
@@ -104,6 +104,7 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-functions-ktx")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     ksp("androidx.room:room-compiler:2.6.1")
 }

@@ -66,6 +66,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.tasks.await
 import com.ams.mgr.data.SchoolRepository
@@ -543,7 +544,7 @@ private fun AuthorizationScreen() {
     var coAdminUserId by remember { mutableStateOf("") }
     var coAdminPassword by remember { mutableStateOf("") }
     var coAdminConfirmPassword by remember { mutableStateOf("") }
-    var coAdmins by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var coAdmins by remember { mutableStateOf<List<Triple<String, String, String>>>(emptyList()) }
 
     suspend fun refreshAdminAccess() {
         val current = FirebaseAuth.getInstance().currentUser
@@ -553,7 +554,7 @@ private fun AuthorizationScreen() {
             profile.exists() && profile.getString("role") == "co-admin" && profile.getString("schoolId") == "ams-manager-b1434" && profile.getBoolean("enabled") == true
         }.getOrDefault(false))
         if (isPrimaryAdmin) {
-            coAdmins = runCatching { firestore.collection("adminAccounts").whereEqualTo("role", "co-admin").get().await().documents.map { it.getString("userId").orEmpty() to (it.getString("displayName") ?: it.getString("userId").orEmpty()) }.sortedBy { it.first } }.getOrDefault(emptyList())
+            coAdmins = runCatching { firestore.collection("adminAccounts").whereEqualTo("role", "co-admin").get().await().documents.map { doc -> Triple(doc.id, doc.getString("userId").orEmpty(), doc.getString("displayName") ?: doc.getString("userId").orEmpty()) }.sortedBy { it.second } }.getOrDefault(emptyList())
         }
     }
 
@@ -614,7 +615,45 @@ private fun AuthorizationScreen() {
             }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Creating…" else "Create Co-admin") }
             if (coAdmins.isNotEmpty()) {
                 Text("Existing co-admins", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                coAdmins.forEach { (id, name) -> Text("• $id — $name") }
+                coAdmins.forEach { (uid, id, name) ->
+                    var confirmDeleteCoAdmin by remember(uid) { mutableStateOf(false) }
+                    Card(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(id, fontWeight = FontWeight.SemiBold)
+                                if (name != id) Text(name, style = MaterialTheme.typography.bodySmall)
+                            }
+                            OutlinedButton(enabled = !busy, onClick = { confirmDeleteCoAdmin = true }) {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                                Spacer(Modifier.width(4.dp)); Text("Remove")
+                            }
+                        }
+                    }
+                    if (confirmDeleteCoAdmin) {
+                        AlertDialog(
+                            onDismissRequest = { confirmDeleteCoAdmin = false },
+                            title = { Text("Remove co-admin?") },
+                            text = { Text("This permanently deletes the co-admin login and profile for '$id'. They will no longer be able to sign in. Historical school records are kept.") },
+                            confirmButton = {
+                                TextButton(enabled = !busy, onClick = {
+                                    confirmDeleteCoAdmin = false
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            val current = FirebaseAuth.getInstance().currentUser
+                                            if (current?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || current.isEmailVerified != true) throw SecurityException("Only the verified main admin can remove co-admins.")
+                                            FirebaseFunctions.getInstance().getHttpsCallable("adminDeleteAccount").call(mapOf("accountType" to "co-admin", "uid" to uid, "userId" to id)).await()
+                                            coAdmins = coAdmins.filterNot { it.first == uid }
+                                            message = "Co-admin '$id' was permanently removed."
+                                        } catch (e: Exception) { message = "Could not remove co-admin: ${e.localizedMessage ?: e.javaClass.simpleName}" }
+                                        finally { busy = false }
+                                    }
+                                }) { Text("Remove permanently") }
+                            },
+                            dismissButton = { TextButton(onClick = { confirmDeleteCoAdmin = false }) { Text("Cancel") } }
+                        )
+                    }
+                }
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
         }
@@ -683,7 +722,7 @@ private fun AuthorizationScreen() {
                 Spacer(Modifier.width(4.dp)); Text("Refresh")
             }
         }
-        Text("The login ID is tied to the Firebase Authentication account and cannot be renamed from this Spark-only app. To change a login ID, create a new ID and disable the old one. Removing access below disables the profile; it does not delete the underlying Firebase Authentication user.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Deleting a teacher permanently removes the teacher login from Firebase Authentication, its teacher profile, and stored login credentials. Historical attendance and exam records are kept.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (teachers.isEmpty() && !loadingTeachers) {
             Text("No teacher records to display. Tap Refresh after creating a teacher.", style = MaterialTheme.typography.bodyMedium)
         }
@@ -785,21 +824,23 @@ private fun AuthorizationScreen() {
                         AlertDialog(
                             onDismissRequest = { confirmDeleteProfile = false },
                             title = { Text("Delete teacher profile?") },
-                            text = { Text("This removes ${teacher.userId}'s Firestore profile so the account can no longer use AMS Manager. It does not delete the Firebase Authentication account or historical school records.") },
+                            text = { Text("This permanently deletes ${teacher.userId}'s Firebase Authentication login, teacher profile, and stored login credentials. Historical attendance and exam records will be kept.") },
                             confirmButton = {
                                 TextButton(onClick = {
                                     confirmDeleteProfile = false
                                     scope.launch {
                                         busy = true
                                         try {
-                                            firestore.collection("teacherAccounts").document(teacher.uid).delete().await()
+                                            if (!canManageTeachers) throw SecurityException("Only an enabled admin can permanently delete teacher accounts.")
+                                            FirebaseFunctions.getInstance().getHttpsCallable("adminDeleteAccount").call(mapOf("accountType" to "teacher", "uid" to teacher.uid, "userId" to teacher.userId)).await()
                                             teachers = teachers.filterNot { it.uid == teacher.uid }
                                             displayNameEdits = displayNameEdits - teacher.uid
-                                            message = "Deleted profile for ${teacher.userId}. Authentication account and historical records were not deleted."
+                                            assignmentEdits = assignmentEdits - teacher.uid
+                                            message = "Permanently deleted teacher login and profile for ${teacher.userId}. Historical school records were kept."
                                         } catch (e: Exception) { message = "Profile delete failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }
                                         finally { busy = false }
                                     }
-                                }) { Text("Delete profile") }
+                                }) { Text("Delete account") }
                             },
                             dismissButton = { TextButton(onClick = { confirmDeleteProfile = false }) { Text("Cancel") } }
                         )
