@@ -67,17 +67,22 @@ service cloud.firestore {
       allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.fromClass, request.resource.data.fromSection));
       allow delete: if schoolId == 'ams-manager-b1434' && isAdmin();
     }
+    // Teacher queries must constrain className + section, because Firestore rules
+    // are not filters and cannot authorize a broad studentId-only query.
     match /schools/{schoolId}/attendance/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(resource.data.studentId));
-      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(request.resource.data.studentId));
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/monthlyExams/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(resource.data.studentId));
-      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(request.resource.data.studentId));
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/examMarks/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(resource.data.studentId));
-      allow create, update: if schoolId == 'ams-manager-b1434' && (isAdmin() || studentInAssignment(request.resource.data.studentId));
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (isAdmin() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (isAdmin() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/{document=**} {
       allow read, write: if schoolId == 'ams-manager-b1434' && isAdmin();

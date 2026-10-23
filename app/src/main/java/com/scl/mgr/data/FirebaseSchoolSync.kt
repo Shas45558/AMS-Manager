@@ -43,9 +43,19 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         val eligiblePending = if (isAdmin) pendingRows else pendingRows.filter { it.className == assignedClass && it.section in assignedSections }
         val localPending = eligiblePending.map { it.studentId }.toSet()
         for (studentId in localPending) {
-            school.collection("attendance").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
-            school.collection("monthlyExams").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
-            school.collection("examMarks").whereEqualTo("studentId", studentId).get().await().documents.forEach { it.reference.delete().await() }
+            val pendingRow = eligiblePending.firstOrNull { it.studentId == studentId }
+            suspend fun deleteStudentRecords(collectionName: String) {
+                val query = if (isAdmin) school.collection(collectionName).get().await().documents else {
+                    school.collection(collectionName)
+                        .whereEqualTo("className", pendingRow?.className ?: assignedClass)
+                        .whereEqualTo("section", pendingRow?.section ?: assignedSections.first())
+                        .get().await().documents
+                }
+                query.filter { (it.getLong("studentId") ?: -1L) == studentId }.forEach { it.reference.delete().await() }
+            }
+            deleteStudentRecords("attendance")
+            deleteStudentRecords("monthlyExams")
+            deleteStudentRecords("examMarks")
             school.collection("students").document(studentId.toString()).delete().await()
             db.pendingStudentUpsertDao().remove(studentId)
             db.attendanceDao().deleteForStudent(studentId)
@@ -125,39 +135,43 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         }
         val students = if (isAdmin) db.studentDao().getAllOnce() else db.studentDao().getAllOnce().filter { it.className == assignedClass && it.section in assignedSections }
         val assignedIds = students.map { it.id }.toSet()
+        val studentById = students.associateBy { it.id }
         val attendance = db.attendanceDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
         val monthly = db.monthlyExamDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
         val marks = db.examMarkDao().getAllOnce().filter { isAdmin || it.studentId in assignedIds }
         attendance.forEach { a -> school.collection("attendance").document("${a.studentId}_${a.date}").set(mapOf(
-            "id" to a.id, "studentId" to a.studentId, "date" to a.date, "present" to a.present
+            "id" to a.id, "studentId" to a.studentId, "date" to a.date, "present" to a.present,
+            "className" to (studentById[a.studentId]?.className ?: ""), "section" to (studentById[a.studentId]?.section ?: "")
         )).await() }
         monthly.forEach { e -> school.collection("monthlyExams").document("${e.studentId}_${e.yearMonth}").set(mapOf(
-            "studentId" to e.studentId, "yearMonth" to e.yearMonth, "bangla" to e.bangla,
+            "studentId" to e.studentId, "className" to (studentById[e.studentId]?.className ?: ""),
+            "section" to (studentById[e.studentId]?.section ?: ""), "yearMonth" to e.yearMonth, "bangla" to e.bangla,
             "english" to e.english, "math" to e.math, "socialScience" to e.socialScience,
             "science" to e.science, "religion" to e.religion, "physics" to e.physics,
             "chemistry" to e.chemistry, "biology" to e.biology, "hMOrAgri" to e.hMOrAgri
         )).await() }
         marks.forEach { e -> school.collection("examMarks").document("${e.studentId}_${e.examType}_${e.subjectKey}").set(mapOf(
-            "studentId" to e.studentId, "examType" to e.examType, "subjectKey" to e.subjectKey,
+            "studentId" to e.studentId, "className" to (studentById[e.studentId]?.className ?: ""),
+            "section" to (studentById[e.studentId]?.section ?: ""), "examType" to e.examType, "subjectKey" to e.subjectKey,
             "cq" to e.cq, "mcq" to e.mcq
         )).await() }
 
         // Student roster was reconciled from the cloud above.
-        val remoteAttendance = if (isAdmin) school.collection("attendance").get().await().documents else queryByStudentIds("attendance", assignedIds)
+        val remoteAttendance = if (isAdmin) school.collection("attendance").get().await().documents else queryByAssignment("attendance", assignedClass, assignedSections)
         remoteAttendance.forEach { d ->
             val m = d.data ?: return@forEach
             val studentId = m.long("studentId") ?: return@forEach
             val date = m.str("date")
             db.attendanceDao().upsert(Attendance(m.long("id") ?: 0L, studentId, date, m["present"] as? Boolean ?: false))
         }
-        val remoteMonthly = if (isAdmin) school.collection("monthlyExams").get().await().documents else queryByStudentIds("monthlyExams", assignedIds)
+        val remoteMonthly = if (isAdmin) school.collection("monthlyExams").get().await().documents else queryByAssignment("monthlyExams", assignedClass, assignedSections)
         val monthlyRemote = remoteMonthly.mapNotNull { d ->
             val m = d.data ?: return@mapNotNull null
             val id = m.long("studentId") ?: return@mapNotNull null
             MonthlyExam(id, m.str("yearMonth"), m.int("bangla"), m.int("english"), m.int("math"), m.int("socialScience"), m.int("science"), m.int("religion"), m.int("physics"), m.int("chemistry"), m.int("biology"), m.int("hMOrAgri"))
         }
         db.monthlyExamDao().upsertAll(monthlyRemote)
-        val remoteMarks = if (isAdmin) school.collection("examMarks").get().await().documents else queryByStudentIds("examMarks", assignedIds)
+        val remoteMarks = if (isAdmin) school.collection("examMarks").get().await().documents else queryByAssignment("examMarks", assignedClass, assignedSections)
         val marksRemote = remoteMarks.mapNotNull { d ->
             val m = d.data ?: return@mapNotNull null
             val id = m.long("studentId") ?: return@mapNotNull null
@@ -168,14 +182,17 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         return SyncReport(students.size, attendance.size, monthly.size, marks.size)
     }
 
-    private suspend fun queryByStudentIds(collection: String, studentIds: Set<Long>): List<com.google.firebase.firestore.DocumentSnapshot> {
-        if (studentIds.isEmpty()) return emptyList()
+    private suspend fun queryByAssignment(collection: String, assignedClass: String, assignedSections: Set<String>): List<com.google.firebase.firestore.DocumentSnapshot> {
+        if (assignedClass.isBlank() || assignedSections.isEmpty()) return emptyList()
         val result = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
-        // Firestore whereIn supports up to 30 values per query.
-        studentIds.toList().chunked(30).forEach { chunk ->
-            result += school.collection(collection).whereIn("studentId", chunk).get().await().documents
+        // Queries explicitly constrain the fields checked by Firestore rules.
+        for (section in assignedSections) {
+            result += school.collection(collection)
+                .whereEqualTo("className", assignedClass)
+                .whereEqualTo("section", section)
+                .get().await().documents
         }
-        return result
+        return result.distinctBy { it.id }
     }
 
     private fun Map<String, Any?>.str(key: String) = this[key] as? String ?: ""
