@@ -41,6 +41,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -210,32 +211,34 @@ fun SchoolManagerApp(repository: SchoolRepository) {
         gesturesEnabled = true,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(310.dp)) {
-                Spacer(Modifier.height(20.dp))
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
                 ) {
-                    Surface(
-                        modifier = Modifier.size(56.dp),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.School,
-                                contentDescription = "AMS Manager",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(32.dp)
-                            )
+                        Surface(
+                            modifier = Modifier.size(58.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.14f)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.School, contentDescription = "AMS Manager", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp))
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("AMS Manager", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            Text("School administration", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f))
+                            Spacer(Modifier.height(5.dp))
+                            Text(activeRole ?: "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text("AMS Manager", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("School administration", style = MaterialTheme.typography.bodySmall)
-                    }
                 }
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Spacer(Modifier.height(12.dp))
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
@@ -896,16 +899,27 @@ private fun AppScaffold(
     content: @Composable () -> Unit
 ) {
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = {
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleLarge)
+                        Text("AMTOLI MODEL SCHOOL", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = {
                         scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() }
                     }) {
                         Icon(Icons.Default.Menu, contentDescription = "Open menu")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.primary
+                )
             )
         }
     ) { padding ->
@@ -929,16 +943,54 @@ private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, 
     val students = if (teacherMode) allStudents.filter { it.className == assignedClass && it.section in teacherSections } else allStudents
     val totalStudents = students.size
 
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Welcome to AMS Manager", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-
-        Card(onClick = onStudents, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp)) {
-                Text("Total Students", style = MaterialTheme.typography.titleMedium)
-                Text("$totalStudents", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-                Text("Manage students and attendance")
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(26.dp),
+            color = MaterialTheme.colorScheme.primary
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(if (teacherMode) "Teacher workspace" else "Welcome back", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
+                    Text("Amtoli Model School", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                    Text(if (teacherMode) "Class $assignedClass • Section ${teacherSections.joinToString(" + ")}" else "Your school at a glance", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f))
+                }
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.13f), modifier = Modifier.size(62.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(38.dp))
+                    }
+                }
             }
         }
+
+        Text("Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+        Card(
+            onClick = onStudents,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(58.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(30.dp))
+                    }
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Total Students", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text("$totalStudents", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("View and manage student records", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = "Open students", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text("Quick access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+        Text("Use the menu to open attendance, exams, reports, and school administration tools.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
