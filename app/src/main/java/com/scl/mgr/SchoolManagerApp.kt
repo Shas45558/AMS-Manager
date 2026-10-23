@@ -517,6 +517,8 @@ private fun LoginScreen(
 }
 
 
+private data class CoAdminRow(val uid: String, val userId: String, val displayName: String, val enabled: Boolean)
+
 private data class TeacherAdminRow(
     val uid: String,
     val userId: String,
@@ -544,7 +546,7 @@ private fun AuthorizationScreen() {
     var coAdminUserId by remember { mutableStateOf("") }
     var coAdminPassword by remember { mutableStateOf("") }
     var coAdminConfirmPassword by remember { mutableStateOf("") }
-    var coAdmins by remember { mutableStateOf<List<Triple<String, String, String>>>(emptyList()) }
+    var coAdmins by remember { mutableStateOf<List<CoAdminRow>>(emptyList()) }
 
     suspend fun refreshAdminAccess() {
         val current = FirebaseAuth.getInstance().currentUser
@@ -554,7 +556,7 @@ private fun AuthorizationScreen() {
             profile.exists() && profile.getString("role") == "co-admin" && profile.getString("schoolId") == "ams-manager-b1434" && profile.getBoolean("enabled") == true
         }.getOrDefault(false))
         if (isPrimaryAdmin) {
-            coAdmins = runCatching { firestore.collection("adminAccounts").whereEqualTo("role", "co-admin").get().await().documents.map { doc -> Triple(doc.id, doc.getString("userId").orEmpty(), doc.getString("displayName") ?: doc.getString("userId").orEmpty()) }.sortedBy { it.second } }.getOrDefault(emptyList())
+            coAdmins = runCatching { firestore.collection("adminAccounts").whereEqualTo("role", "co-admin").get().await().documents.map { doc -> CoAdminRow(doc.id, doc.getString("userId").orEmpty(), doc.getString("displayName") ?: doc.getString("userId").orEmpty(), doc.getBoolean("enabled") == true) }.sortedBy { it.userId } }.getOrDefault(emptyList())
         }
     }
 
@@ -615,42 +617,43 @@ private fun AuthorizationScreen() {
             }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Creating…" else "Create Co-admin") }
             if (coAdmins.isNotEmpty()) {
                 Text("Existing co-admins", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                coAdmins.forEach { (uid, id, name) ->
-                    var confirmDeleteCoAdmin by remember(uid) { mutableStateOf(false) }
+                coAdmins.forEach { coAdmin ->
+                    var confirmToggleCoAdmin by remember(coAdmin.uid) { mutableStateOf(false) }
                     Card(Modifier.fillMaxWidth()) {
                         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(id, fontWeight = FontWeight.SemiBold)
-                                if (name != id) Text(name, style = MaterialTheme.typography.bodySmall)
+                                Text(coAdmin.userId, fontWeight = FontWeight.SemiBold)
+                                if (coAdmin.displayName != coAdmin.userId) Text(coAdmin.displayName, style = MaterialTheme.typography.bodySmall)
+                                Text(if (coAdmin.enabled) "Enabled — can sign in" else "Disabled — sign-in and Firestore access blocked", style = MaterialTheme.typography.bodySmall, color = if (coAdmin.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                             }
-                            OutlinedButton(enabled = !busy, onClick = { confirmDeleteCoAdmin = true }) {
-                                Icon(Icons.Default.Delete, contentDescription = null)
-                                Spacer(Modifier.width(4.dp)); Text("Remove")
+                            OutlinedButton(enabled = !busy, onClick = { confirmToggleCoAdmin = true }) {
+                                Icon(if (coAdmin.enabled) Icons.Default.Block else Icons.Default.CheckCircle, contentDescription = null)
+                                Spacer(Modifier.width(4.dp)); Text(if (coAdmin.enabled) "Disable" else "Enable")
                             }
                         }
                     }
-                    if (confirmDeleteCoAdmin) {
+                    if (confirmToggleCoAdmin) {
                         AlertDialog(
-                            onDismissRequest = { confirmDeleteCoAdmin = false },
-                            title = { Text("Remove co-admin?") },
-                            text = { Text("This permanently deletes the co-admin login and profile for '$id'. They will no longer be able to sign in. Historical school records are kept.") },
+                            onDismissRequest = { confirmToggleCoAdmin = false },
+                            title = { Text(if (coAdmin.enabled) "Disable co-admin?" else "Enable co-admin?") },
+                            text = { Text(if (coAdmin.enabled) "Disable '${coAdmin.userId}'? Their Firebase Authentication login will remain, but the app will reject future logins and Firestore rules will block privileged access. You can re-enable them later. This works on the Firebase Spark plan and does not delete school records." else "Re-enable '${coAdmin.userId}'? They will be able to sign in and regain co-admin access.") },
                             confirmButton = {
                                 TextButton(enabled = !busy, onClick = {
-                                    confirmDeleteCoAdmin = false
+                                    confirmToggleCoAdmin = false
                                     scope.launch {
                                         busy = true
                                         try {
                                             val current = FirebaseAuth.getInstance().currentUser
-                                            if (current?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || current.isEmailVerified != true) throw SecurityException("Only the verified main admin can remove co-admins.")
-                                            FirebaseFunctions.getInstance().getHttpsCallable("adminDeleteAccount").call(mapOf("accountType" to "co-admin", "uid" to uid, "userId" to id)).await()
-                                            coAdmins = coAdmins.filterNot { it.first == uid }
-                                            message = "Co-admin '$id' was permanently removed."
-                                        } catch (e: Exception) { message = "Could not remove co-admin: ${e.localizedMessage ?: e.javaClass.simpleName}" }
+                                            if (current?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || current.isEmailVerified != true) throw SecurityException("Only the verified main admin can manage co-admin accounts.")
+                                            firestore.collection("adminAccounts").document(coAdmin.uid).update("enabled", !coAdmin.enabled, "updatedAt", com.google.firebase.Timestamp.now()).await()
+                                            coAdmins = coAdmins.map { if (it.uid == coAdmin.uid) it.copy(enabled = !coAdmin.enabled) else it }
+                                            message = if (coAdmin.enabled) "Co-admin '${coAdmin.userId}' disabled. Their Firebase Authentication account remains, but app access is blocked." else "Co-admin '${coAdmin.userId}' enabled again."
+                                        } catch (e: Exception) { message = "Could not ${if (coAdmin.enabled) "disable" else "enable"} co-admin: ${e.localizedMessage ?: e.javaClass.simpleName}" }
                                         finally { busy = false }
                                     }
-                                }) { Text("Remove permanently") }
+                                }) { Text(if (coAdmin.enabled) "Disable account" else "Enable account") }
                             },
-                            dismissButton = { TextButton(onClick = { confirmDeleteCoAdmin = false }) { Text("Cancel") } }
+                            dismissButton = { TextButton(onClick = { confirmToggleCoAdmin = false }) { Text("Cancel") } }
                         )
                     }
                 }
