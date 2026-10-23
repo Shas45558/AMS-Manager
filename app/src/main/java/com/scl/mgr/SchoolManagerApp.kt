@@ -619,18 +619,49 @@ private fun AuthorizationScreen() {
                 Text("Existing co-admins", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 coAdmins.forEach { coAdmin ->
                     var confirmToggleCoAdmin by remember(coAdmin.uid) { mutableStateOf(false) }
+                    var confirmDeleteCoAdmin by remember(coAdmin.uid) { mutableStateOf(false) }
                     Card(Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
+                        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column {
                                 Text(coAdmin.userId, fontWeight = FontWeight.SemiBold)
                                 if (coAdmin.displayName != coAdmin.userId) Text(coAdmin.displayName, style = MaterialTheme.typography.bodySmall)
                                 Text(if (coAdmin.enabled) "Enabled — can sign in" else "Disabled — sign-in and Firestore access blocked", style = MaterialTheme.typography.bodySmall, color = if (coAdmin.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                             }
-                            OutlinedButton(enabled = !busy, onClick = { confirmToggleCoAdmin = true }) {
-                                Icon(if (coAdmin.enabled) Icons.Default.Block else Icons.Default.CheckCircle, contentDescription = null)
-                                Spacer(Modifier.width(4.dp)); Text(if (coAdmin.enabled) "Disable" else "Enable")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(enabled = !busy, onClick = { confirmToggleCoAdmin = true }) {
+                                    Icon(if (coAdmin.enabled) Icons.Default.Block else Icons.Default.CheckCircle, contentDescription = null)
+                                    Spacer(Modifier.width(4.dp)); Text(if (coAdmin.enabled) "Disable" else "Enable")
+                                }
+                                OutlinedButton(enabled = !busy, onClick = { confirmDeleteCoAdmin = true }) {
+                                    Icon(Icons.Default.Delete, contentDescription = null)
+                                    Spacer(Modifier.width(4.dp)); Text("Delete")
+                                }
                             }
                         }
+                    }
+                    if (confirmDeleteCoAdmin) {
+                        AlertDialog(
+                            onDismissRequest = { confirmDeleteCoAdmin = false },
+                            title = { Text("Remove co-admin profile?") },
+                            text = { Text("Remove '${coAdmin.userId}' from this app's co-admin list? This deletes only the Firestore adminAccounts profile. The Firebase Authentication login itself is not deleted on the Spark plan. The account will lose co-admin access because the profile is missing, and you can recreate the profile only by creating a new co-admin account.") },
+                            confirmButton = {
+                                TextButton(enabled = !busy, onClick = {
+                                    confirmDeleteCoAdmin = false
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            val current = FirebaseAuth.getInstance().currentUser
+                                            if (current?.email?.equals("shas45558@gmail.com", ignoreCase = true) != true || current.isEmailVerified != true) throw SecurityException("Only the verified main admin can remove co-admin profiles.")
+                                            firestore.collection("adminAccounts").document(coAdmin.uid).delete().await()
+                                            coAdmins = coAdmins.filterNot { it.uid == coAdmin.uid }
+                                            message = "Co-admin '${coAdmin.userId}' removed from the app list. Its Firebase Authentication login still exists, but co-admin profile access is revoked."
+                                        } catch (e: Exception) { message = "Could not remove co-admin profile: ${e.localizedMessage ?: e.javaClass.simpleName}" }
+                                        finally { busy = false }
+                                    }
+                                }) { Text("Remove profile") }
+                            },
+                            dismissButton = { TextButton(onClick = { confirmDeleteCoAdmin = false }) { Text("Cancel") } }
+                        )
                     }
                     if (confirmToggleCoAdmin) {
                         AlertDialog(
