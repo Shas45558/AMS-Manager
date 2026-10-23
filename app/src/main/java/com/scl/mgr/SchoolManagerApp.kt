@@ -66,7 +66,6 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.tasks.await
 import com.ams.mgr.data.SchoolRepository
@@ -756,7 +755,7 @@ private fun AuthorizationScreen() {
                 Spacer(Modifier.width(4.dp)); Text("Refresh")
             }
         }
-        Text("Deleting a teacher permanently removes the teacher login from Firebase Authentication, its teacher profile, and stored login credentials. Historical attendance and exam records are kept.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("On the free Firebase Spark plan, deleting a teacher removes their Firestore profile and blocks app access. Firebase Authentication login cannot be deleted from this app without a trusted server-side function. Historical attendance and exam records are kept.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (teachers.isEmpty() && !loadingTeachers) {
             Text("No teacher records to display. Tap Refresh after creating a teacher.", style = MaterialTheme.typography.bodyMedium)
         }
@@ -858,7 +857,7 @@ private fun AuthorizationScreen() {
                         AlertDialog(
                             onDismissRequest = { confirmDeleteProfile = false },
                             title = { Text("Delete teacher profile?") },
-                            text = { Text("This permanently deletes ${teacher.userId}'s Firebase Authentication login, teacher profile, and stored login credentials. Historical attendance and exam records will be kept.") },
+                            text = { Text("This removes ${teacher.userId}'s teacher profile from Firestore and blocks access to the school app. On the free Spark plan, the Firebase Authentication login itself cannot be deleted here. Historical attendance and exam records will be kept.") },
                             confirmButton = {
                                 TextButton(onClick = {
                                     confirmDeleteProfile = false
@@ -866,15 +865,18 @@ private fun AuthorizationScreen() {
                                         busy = true
                                         try {
                                             if (!canManageTeachers) throw SecurityException("Only an enabled admin can permanently delete teacher accounts.")
-                                            FirebaseFunctions.getInstance().getHttpsCallable("adminDeleteAccount").call(mapOf("accountType" to "teacher", "uid" to teacher.uid, "userId" to teacher.userId)).await()
+                                            // Spark-compatible deletion: remove the Firestore authorization profile directly.
+                                            // Teacher login checks require this profile, so the account can no longer enter the school app.
+                                            // Deleting another user's Firebase Authentication account requires trusted server-side privileges.
+                                            firestore.collection("teacherAccounts").document(teacher.uid).delete().await()
                                             teachers = teachers.filterNot { it.uid == teacher.uid }
                                             displayNameEdits = displayNameEdits - teacher.uid
                                             assignmentEdits = assignmentEdits - teacher.uid
-                                            message = "Permanently deleted teacher login and profile for ${teacher.userId}. Historical school records were kept."
+                                            message = "Deleted teacher profile for ${teacher.userId}. School-app access is blocked; Firebase Authentication login remains on the Spark plan."
                                         } catch (e: Exception) { message = "Profile delete failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }
                                         finally { busy = false }
                                     }
-                                }) { Text("Delete account") }
+                                }) { Text("Delete profile") }
                             },
                             dismissButton = { TextButton(onClick = { confirmDeleteProfile = false }) { Text("Cancel") } }
                         )
