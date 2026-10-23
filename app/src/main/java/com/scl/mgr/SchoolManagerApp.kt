@@ -56,6 +56,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -945,9 +946,20 @@ private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, 
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.secondary,
+                            MaterialTheme.colorScheme.tertiary
+                        )
+                    ),
+                    shape = RoundedCornerShape(26.dp)
+                ),
             shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.primary
+            color = Color.Transparent
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),

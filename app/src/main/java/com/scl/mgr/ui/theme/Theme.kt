@@ -10,15 +10,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 
-private val Navy = Color(0xFF17324D)
-private val DeepNavy = Color(0xFF0D2238)
-private val Teal = Color(0xFF087E8B)
-private val PaleTeal = Color(0xFFD9F0EF)
-private val Cloud = Color(0xFFF4F7FA)
-private val Slate = Color(0xFF526579)
-private val DarkBackground = Color(0xFF101A24)
-private val DarkSurface = Color(0xFF182633)
-private val DarkTeal = Color(0xFF79D0D0)
+private val Navy = Color(0xFF172554)
+private val DeepNavy = Color(0xFF0B1537)
+private val Teal = Color(0xFF0F9D91)
+private val PaleTeal = Color(0xFFD9F7F1)
+private val Cloud = Color(0xFFF4F7FC)
+private val Slate = Color(0xFF53627A)
+private val DarkBackground = Color(0xFF0B1220)
+private val DarkSurface = Color(0xFF121D30)
+private val DarkTeal = Color(0xFF55E0C1)
 
 private val LightColors = lightColorScheme(
     primary = Navy,
@@ -27,36 +27,42 @@ private val LightColors = lightColorScheme(
     onPrimaryContainer = DeepNavy,
     secondary = Teal,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE0F3F1),
-    onSecondaryContainer = Color(0xFF103B42),
-    tertiary = Color(0xFF477A62),
+    secondaryContainer = Color(0xFFDDF7F2),
+    onSecondaryContainer = Color(0xFF073F3B),
+    tertiary = Color(0xFF6750A4),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFE9DDFF),
+    onTertiaryContainer = Color(0xFF25104D),
     background = Cloud,
-    onBackground = Color(0xFF172635),
-    surface = Color.White,
-    onSurface = Color(0xFF172635),
-    surfaceVariant = Color(0xFFE8EEF3),
+    onBackground = Color(0xFF17243A),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF17243A),
+    surfaceVariant = Color(0xFFE9EEF7),
     onSurfaceVariant = Slate,
-    outline = Color(0xFFB7C4CE),
-    error = Color(0xFFB3261E)
+    outline = Color(0xFFB8C4D8),
+    error = Color(0xFFBA1A1A)
 )
 
 private val DarkColors = darkColorScheme(
     primary = DarkTeal,
-    onPrimary = Color(0xFF003739),
-    primaryContainer = Color(0xFF244B52),
-    onPrimaryContainer = Color(0xFFD0F4F1),
-    secondary = Color(0xFF9FC9E8),
-    onSecondary = Color(0xFF153247),
-    secondaryContainer = Color(0xFF294557),
-    onSecondaryContainer = Color(0xFFD8EAF8),
-    tertiary = Color(0xFFA6D5B8),
+    onPrimary = Color(0xFF00382F),
+    primaryContainer = Color(0xFF174D49),
+    onPrimaryContainer = Color(0xFFBDF7E9),
+    secondary = Color(0xFF9BBEFF),
+    onSecondary = Color(0xFF152E59),
+    secondaryContainer = Color(0xFF263F69),
+    onSecondaryContainer = Color(0xFFDCE6FF),
+    tertiary = Color(0xFFD0BCFF),
+    onTertiary = Color(0xFF381E72),
+    tertiaryContainer = Color(0xFF4F378B),
+    onTertiaryContainer = Color(0xFFE9DDFF),
     background = DarkBackground,
-    onBackground = Color(0xFFE5EDF4),
+    onBackground = Color(0xFFE8EEFC),
     surface = DarkSurface,
-    onSurface = Color(0xFFE5EDF4),
-    surfaceVariant = Color(0xFF263746),
-    onSurfaceVariant = Color(0xFFB7C7D4),
-    outline = Color(0xFF526575),
+    onSurface = Color(0xFFE8EEFC),
+    surfaceVariant = Color(0xFF243149),
+    onSurfaceVariant = Color(0xFFB8C5DE),
+    outline = Color(0xFF52617C),
     error = Color(0xFFFFB4AB)
 )
 
