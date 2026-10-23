@@ -180,9 +180,9 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("ssc_students", "SSC Students", Icons.Default.School),
             DrawerItem("attendance", "Attendance", Icons.Default.CheckCircle),
             DrawerItem("monthly_exam", "Monthly Exam", Icons.Default.Assignment),
-            DrawerItem("exams", "Exams & Results", Icons.Default.Assignment, false),
-            DrawerItem("reports", "Reports", Icons.Default.BarChart, false),
-            DrawerItem("settings", "Sync", Icons.Default.Cloud, false)
+            DrawerItem("exams", "Exams & Results", Icons.Default.Assignment),
+            DrawerItem("reports", "Reports", Icons.Default.BarChart),
+            DrawerItem("settings", "Sync", Icons.Default.Cloud)
         )
     }
 
