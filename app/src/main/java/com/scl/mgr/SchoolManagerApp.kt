@@ -90,8 +90,7 @@ import kotlinx.coroutines.flow.first
 private data class DrawerItem(
     val route: String,
     val label: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val demo: Boolean = false
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
 )
 
 private const val PREFS = "student_form_defaults"
@@ -179,24 +178,17 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("students", "Students", Icons.Default.School),
             DrawerItem("promotion", "Student Promotion", Icons.Default.Upgrade),
             DrawerItem("ssc_students", "SSC Students", Icons.Default.School),
-            DrawerItem("teachers", "Teachers", Icons.Default.Person, true),
-            DrawerItem("classes", "Classes", Icons.Default.Class, true),
-            DrawerItem("subjects", "Subjects", Icons.Default.MenuBook, true),
             DrawerItem("attendance", "Attendance", Icons.Default.CheckCircle),
             DrawerItem("monthly_exam", "Monthly Exam", Icons.Default.Assignment),
             DrawerItem("exams", "Exams & Results", Icons.Default.Assignment, false),
-            DrawerItem("fees", "Fees & Payments", Icons.Default.AccountBalanceWallet, true),
-            DrawerItem("notices", "Notices", Icons.Default.Notifications, true),
-            DrawerItem("events", "Events", Icons.Default.Event, true),
             DrawerItem("reports", "Reports", Icons.Default.BarChart, false),
             DrawerItem("settings", "Sync", Icons.Default.Cloud, false)
         )
     }
 
-    fun navigateFromDrawer(route: String, demo: Boolean, label: String) {
+    fun navigateFromDrawer(route: String) {
         scope.launch { drawerState.close() }
-        val target = if (demo) "demo/$label" else route
-        navController.navigate(target) {
+        navController.navigate(route) {
             // Drawer destinations are root-level pages. Replace the current root page
             // instead of stacking every drawer click in the back stack.
             popUpTo(navController.graph.findStartDestination().id) {
@@ -247,18 +239,10 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "monthly_exam", "exams", "reports", "settings") } else items
                         items(visibleItems, key = { it.route }) { item ->
                             NavigationDrawerItem(
-                                label = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(item.label)
-                                        if (item.demo) {
-                                            Spacer(Modifier.width(8.dp))
-                                            AssistChip(onClick = {}, label = { Text("Demo") }, enabled = false)
-                                        }
-                                    }
-                                },
+                                label = { Text(item.label) },
                                 icon = { Icon(item.icon, contentDescription = null) },
                                 selected = false,
-                                onClick = { navigateFromDrawer(item.route, item.demo, item.label) },
+                                onClick = { navigateFromDrawer(item.route) },
                                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                             )
                         }
@@ -383,10 +367,6 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                 AppScaffold("Reports", drawerState, scope) {
                     ReportsScreen(repository, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "", (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it.isNotBlank() })
                 }
-            }
-            composable("demo/{name}") { backStack ->
-                val name = backStack.arguments?.getString("name") ?: "Feature"
-                AppScaffold(name, drawerState, scope) { DemoScreen(name) }
             }
             composable("authorization") {
                 AppScaffold("Authorization", drawerState, scope) { AuthorizationScreen() }
@@ -1967,18 +1947,6 @@ private fun FirebaseSyncScreen() {
             GoogleSignIn.getClient(context, com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN).signOut()
             status = "Signed out. Sign in again to sync."
         }, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
-    }
-}
-
-@Composable
-private fun DemoScreen(name: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.Construction, contentDescription = null, modifier = Modifier.size(56.dp))
-            Spacer(Modifier.height(12.dp))
-            Text("$name is Demo", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("This module will be added in a future version.")
-        }
     }
 }
 
