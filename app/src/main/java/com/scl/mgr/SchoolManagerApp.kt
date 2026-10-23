@@ -298,7 +298,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
         ) {
             composable("dashboard") {
                 AppScaffold("Dashboard", drawerState, scope) {
-                    DashboardScreen(repository, teacherMode = activeRole == "Teacher", assignedClass = authPrefs.getString("assigned_class", "") ?: "", assignedSection = authPrefs.getString("assigned_section", "") ?: "", onStudents = { navController.navigate("students") })
+                    DashboardScreen(repository, teacherMode = activeRole == "Teacher", assignedClass = authPrefs.getString("assigned_class", "") ?: "", assignedSection = authPrefs.getString("assigned_section", "") ?: "", assignedSections = (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it in listOf("A", "B") }, onStudents = { navController.navigate("students") })
                 }
             }
             composable("students") {
@@ -784,9 +784,11 @@ private data class AttendanceGroupSummary(
 )
 
 @Composable
-private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, onStudents: () -> Unit) {
+private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, assignedSections: List<String> = listOf(assignedSection), onStudents: () -> Unit) {
     val allStudents by repository.students("").collectAsState(initial = emptyList())
-    val students = if (teacherMode) allStudents.filter { it.className == assignedClass && it.section == assignedSection } else allStudents
+    val teacherSections = (assignedSections.ifEmpty { listOf(assignedSection) })
+        .map { it.trim() }.filter { it in listOf("A", "B") }.distinct()
+    val students = if (teacherMode) allStudents.filter { it.className == assignedClass && it.section in teacherSections } else allStudents
     val totalStudents = students.size
 
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
