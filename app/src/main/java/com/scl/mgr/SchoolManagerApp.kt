@@ -37,6 +37,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,6 +57,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
@@ -228,7 +232,12 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.24f))
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.School, contentDescription = "AMS Manager", tint = Color.White, modifier = Modifier.size(38.dp))
+                                    Image(
+                                        painter = painterResource(id = com.ams.mgr.R.drawable.amtoli_school_logo),
+                                        contentDescription = "Amtoli Model School logo",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(58.dp).clip(CircleShape)
+                                    )
                                 }
                             }
                             Spacer(Modifier.width(15.dp))
@@ -463,7 +472,12 @@ private fun LoginScreen(
             .requestEmail().requestIdToken("891410663079-j2qnup0bc2a017dl4je985t6h4oobo0f.apps.googleusercontent.com").build())
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Default.School, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+        Image(
+            painter = painterResource(id = com.ams.mgr.R.drawable.amtoli_school_logo),
+            contentDescription = "Amtoli Model School logo",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(88.dp).clip(CircleShape)
+        )
         Text("AMS Manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Sign in with Firebase", style = MaterialTheme.typography.bodyMedium)
         Button(onClick = { error = ""; busy = true; signInLauncher.launch(signInClient.signInIntent) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Admin — Google Sign-In") }
@@ -1024,7 +1038,12 @@ private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, 
                 }
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.13f), modifier = Modifier.size(62.dp)) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(38.dp))
+                        Image(
+                            painter = painterResource(id = com.ams.mgr.R.drawable.amtoli_school_logo),
+                            contentDescription = "Amtoli Model School logo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(58.dp).clip(CircleShape)
+                        )
                     }
                 }
             }
@@ -2026,7 +2045,12 @@ private fun AboutScreen() {
     Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(modifier = Modifier.size(100.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.School, contentDescription = "AMS Manager", tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(56.dp))
+                Image(
+                    painter = painterResource(id = com.ams.mgr.R.drawable.amtoli_school_logo),
+                    contentDescription = "Amtoli Model School logo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape)
+                )
             }
         }
         Spacer(Modifier.height(16.dp))
