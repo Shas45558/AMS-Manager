@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavType
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
@@ -233,7 +234,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                             Spacer(Modifier.width(15.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("AMS Manager", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                Text("SCHOOL MANAGEMENT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.82f), letterSpacing = androidx.compose.ui.unit.sp(1.2f))
+                                Text("SCHOOL MANAGEMENT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.82f), letterSpacing = 1.2.sp)
                             }
                         }
                         Text("Amtoli Model School", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
@@ -250,7 +251,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                Text("WORKSPACE", modifier = Modifier.padding(start = 22.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = androidx.compose.ui.unit.sp(1.5f))
+                Text("WORKSPACE", modifier = Modifier.padding(start = 22.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = 1.5.sp)
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
@@ -924,7 +925,7 @@ private fun AppScaffold(
                     Spacer(Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
-                        Text("AMTOLI MODEL SCHOOL", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, letterSpacing = androidx.compose.ui.unit.sp(0.8f))
+                        Text("AMTOLI MODEL SCHOOL", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, letterSpacing = 0.8.sp)
                     }
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
                         Icon(Icons.Default.School, contentDescription = "School", modifier = Modifier.padding(10.dp).size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
