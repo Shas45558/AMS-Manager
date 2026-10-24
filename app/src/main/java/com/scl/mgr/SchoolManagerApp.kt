@@ -902,33 +902,75 @@ private fun AppScaffold(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 2.dp
+            // Shared welcome banner for every drawer page. statusBarsPadding keeps
+            // the content safely below the phone status bar/notch.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF172554),
+                                Color(0xFF5141A5),
+                                Color(0xFF0F9D91)
+                            )
+                        )
+                    )
+                    .statusBarsPadding()
+                    .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 20.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 18.dp, top = 18.dp, bottom = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
                 ) {
                     Surface(
-                        modifier = Modifier.size(48.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
+                        modifier = Modifier.padding(top = 2.dp).size(46.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        color = Color.White.copy(alpha = 0.17f)
                     ) {
                         IconButton(onClick = {
                             scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() }
                         }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = Color.White)
                         }
                     }
-                    Spacer(Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
-                        Text("AMTOLI MODEL SCHOOL", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, letterSpacing = 0.8.sp)
+                    Spacer(Modifier.width(13.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            "Welcome to",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White.copy(alpha = 0.82f),
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            "Amtoli Model School",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White.copy(alpha = 0.94f),
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                        Icon(Icons.Default.School, contentDescription = "School", modifier = Modifier.padding(10.dp).size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Surface(
+                        modifier = Modifier.padding(top = 2.dp).size(48.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.16f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.School,
+                                contentDescription = "School",
+                                modifier = Modifier.size(28.dp),
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
