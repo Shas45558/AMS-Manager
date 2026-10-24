@@ -1412,13 +1412,20 @@ private fun StudentCard(student: Student, onClick: () -> Unit) {
         }
     }
 
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(student.studentName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(student.studentName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Text("ID/Roll: ${student.studentId}")
                 Text("Class: ${student.className} • Section: ${student.section}")
                 if (student.sscYear.isNotBlank()) Text("SSC-${student.sscYear}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
@@ -1436,7 +1443,7 @@ private fun StudentCard(student: Student, onClick: () -> Unit) {
                         callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
                     }
                 }) {
-                    Icon(Icons.Default.Call, contentDescription = "Call ${student.studentName}", modifier = Modifier.size(30.dp))
+                    Icon(Icons.Default.Call, contentDescription = "Call ${student.studentName}", modifier = Modifier.size(30.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -2002,7 +2009,7 @@ private fun StudentDetailsScreen(
                         Icon(
                             if (record.present) Icons.Default.CheckCircle else Icons.Default.Cancel,
                             contentDescription = null,
-                            tint = if (record.present) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                            tint = if (record.present) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                         )
                     }
                 )
