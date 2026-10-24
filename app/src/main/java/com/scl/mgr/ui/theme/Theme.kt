@@ -10,59 +10,61 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 
-private val Navy = Color(0xFF172554)
-private val DeepNavy = Color(0xFF0B1537)
-private val Teal = Color(0xFF0F9D91)
-private val PaleTeal = Color(0xFFD9F7F1)
-private val Cloud = Color(0xFFF4F7FC)
-private val Slate = Color(0xFF53627A)
-private val DarkBackground = Color(0xFF0B1220)
-private val DarkSurface = Color(0xFF121D30)
-private val DarkTeal = Color(0xFF55E0C1)
+// Amtoli Model School logo palette: deep green, leaf green, red accents, and white.
+private val SchoolGreen = Color(0xFF007A4D)
+private val DeepGreen = Color(0xFF004D32)
+private val LeafGreen = Color(0xFF00A36C)
+private val PaleGreen = Color(0xFFE0F3E9)
+private val Cloud = Color(0xFFF6FAF7)
+private val Slate = Color(0xFF53665C)
+private val SchoolRed = Color(0xFFB71C1C)
+private val DarkBackground = Color(0xFF0B1711)
+private val DarkSurface = Color(0xFF14251B)
+private val DarkGreen = Color(0xFF75D6A5)
 
 private val LightColors = lightColorScheme(
-    primary = Navy,
+    primary = SchoolGreen,
     onPrimary = Color.White,
-    primaryContainer = PaleTeal,
-    onPrimaryContainer = DeepNavy,
-    secondary = Teal,
+    primaryContainer = PaleGreen,
+    onPrimaryContainer = DeepGreen,
+    secondary = LeafGreen,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDDF7F2),
-    onSecondaryContainer = Color(0xFF073F3B),
-    tertiary = Color(0xFF6750A4),
+    secondaryContainer = Color(0xFFD2EEDD),
+    onSecondaryContainer = Color(0xFF123D29),
+    tertiary = SchoolRed,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFE9DDFF),
-    onTertiaryContainer = Color(0xFF25104D),
+    tertiaryContainer = Color(0xFFFFE3E0),
+    onTertiaryContainer = Color(0xFF650909),
     background = Cloud,
-    onBackground = Color(0xFF17243A),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF17243A),
-    surfaceVariant = Color(0xFFE9EEF7),
+    onBackground = Color(0xFF172B20),
+    surface = Color.White,
+    onSurface = Color(0xFF172B20),
+    surfaceVariant = Color(0xFFE8F0EA),
     onSurfaceVariant = Slate,
-    outline = Color(0xFFB8C4D8),
-    error = Color(0xFFBA1A1A)
+    outline = Color(0xFFB7C9BC),
+    error = SchoolRed
 )
 
 private val DarkColors = darkColorScheme(
-    primary = DarkTeal,
-    onPrimary = Color(0xFF00382F),
-    primaryContainer = Color(0xFF174D49),
-    onPrimaryContainer = Color(0xFFBDF7E9),
-    secondary = Color(0xFF9BBEFF),
-    onSecondary = Color(0xFF152E59),
-    secondaryContainer = Color(0xFF263F69),
-    onSecondaryContainer = Color(0xFFDCE6FF),
-    tertiary = Color(0xFFD0BCFF),
-    onTertiary = Color(0xFF381E72),
-    tertiaryContainer = Color(0xFF4F378B),
-    onTertiaryContainer = Color(0xFFE9DDFF),
+    primary = DarkGreen,
+    onPrimary = Color(0xFF003824),
+    primaryContainer = Color(0xFF18563A),
+    onPrimaryContainer = Color(0xFFBDF4D1),
+    secondary = Color(0xFF8DDBAE),
+    onSecondary = Color(0xFF123D29),
+    secondaryContainer = Color(0xFF254C36),
+    onSecondaryContainer = Color(0xFFD1F4DD),
+    tertiary = Color(0xFFFFB4AB),
+    onTertiary = Color(0xFF690005),
+    tertiaryContainer = Color(0xFF93000A),
+    onTertiaryContainer = Color(0xFFFFDAD6),
     background = DarkBackground,
-    onBackground = Color(0xFFE8EEFC),
+    onBackground = Color(0xFFE5F2E8),
     surface = DarkSurface,
-    onSurface = Color(0xFFE8EEFC),
-    surfaceVariant = Color(0xFF243149),
-    onSurfaceVariant = Color(0xFFB8C5DE),
-    outline = Color(0xFF52617C),
+    onSurface = Color(0xFFE5F2E8),
+    surfaceVariant = Color(0xFF263A2D),
+    onSurfaceVariant = Color(0xFFB8CCBD),
+    outline = Color(0xFF52695A),
     error = Color(0xFFFFB4AB)
 )
 

@@ -220,7 +220,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                 ) {
                     Column(
                         modifier = Modifier
-                            .background(Brush.linearGradient(listOf(Color(0xFF172554), Color(0xFF4338A8), Color(0xFF0F9D91))))
+                            .background(Brush.linearGradient(listOf(Color(0xFF006B45), Color(0xFF008653), Color(0xFF00A36C))))
                             .padding(start = 22.dp, end = 20.dp, top = 34.dp, bottom = 26.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -924,9 +924,9 @@ private fun AppScaffold(
                     .background(
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                Color(0xFF172554),
-                                Color(0xFF5141A5),
-                                Color(0xFF0F9D91)
+                                Color(0xFF006B45),
+                                Color(0xFF008653),
+                                Color(0xFF00A36C)
                             )
                         )
                     )
@@ -971,20 +971,6 @@ private fun AppScaffold(
                             color = Color.White.copy(alpha = 0.94f),
                             fontWeight = FontWeight.SemiBold
                         )
-                    }
-                    Surface(
-                        modifier = Modifier.padding(top = 2.dp).size(48.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.White.copy(alpha = 0.16f)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.School,
-                                contentDescription = "School",
-                                modifier = Modifier.size(28.dp),
-                                tint = Color.White
-                            )
-                        }
                     }
                 }
             }
