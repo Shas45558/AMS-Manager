@@ -2955,8 +2955,6 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             confirmButton = { TextButton(onClick = { showExamType = false }) { Text("Close") } }
         )
     }
-    if (!teacherMode && showClass) { DropdownDialog("Class", listOf("6","7","8","9","10"), { className=it; subjectIndex=0; if (it == "10" && examType == "Second Term") examType = "Second Term"; showClass=false }, { showClass=false }) }
-    if (!teacherMode && showSection) { DropdownDialog("Section", listOf("A","B"), { section=it; showSection=false }, { showSection=false }) }
     if (showSubject) { DropdownDialog("Subject", subjects.map { it.name }, { v -> subjectIndex=subjects.indexOfFirst { it.name==v }.coerceAtLeast(0); showSubject=false }, { showSubject=false }) }
     if (showReportMonth) {
         DropdownDialog("Report month", (0..23).map { YearMonth.now().minusMonths(it.toLong()).toString() }, { reportMonth = it; showReportMonth = false }, { showReportMonth = false })
