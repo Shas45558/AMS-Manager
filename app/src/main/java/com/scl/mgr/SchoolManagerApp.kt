@@ -56,6 +56,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
@@ -2504,15 +2505,15 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     ),
                     RoundedCornerShape(24.dp)
                 )
-                .padding(18.dp)
+                .padding(14.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.16f)) {
                         Icon(Icons.Default.Assignment, contentDescription = null, tint = Color.White, modifier = Modifier.padding(9.dp).size(24.dp))
                     }
                     Column(Modifier.weight(1f)) {
-                        Text("Exam & Results", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Exam & Results", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
                         Text("Marks, grades and student performance", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.88f))
                     }
                 }
@@ -2616,10 +2617,10 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1.3f))
-                Text("CQ", Modifier.width(86.dp), fontWeight = FontWeight.Bold)
-                if (subject.hasMcq) {
-                    Spacer(Modifier.width(5.dp))
-                    Text("MCQ", Modifier.width(86.dp), fontWeight = FontWeight.Bold)
+                val displayedFields = if (firstMarkField == "mcq") listOf("mcq", "cq") else listOf("cq", "mcq")
+                displayedFields.take(if (subject.hasMcq) 2 else 1).forEachIndexed { index, field ->
+                    if (index > 0) Spacer(Modifier.width(5.dp))
+                    Text(if (field == "cq") "CQ" else "MCQ", Modifier.width(86.dp), fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.width(5.dp))
                 Text("Total", Modifier.width(48.dp), fontWeight = FontWeight.Bold)
@@ -2630,43 +2631,23 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     val total = (v.first.toIntOrNull() ?: 0) + (v.second.toIntOrNull() ?: 0)
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1.3f)) { Text("Roll ${st.studentId}", fontWeight = FontWeight.Bold); Text(st.studentName, maxLines = 1) }
-                        Surface(
-                            modifier = Modifier
-                                .width(86.dp)
-                                .height(56.dp)
-                                .clickable {
-                                    if (activeStudentId != st.id || activeField != "cq") autoSaveMark(activeStudentId)
-                                    activeStudentId = st.id
-                                    activeField = "cq"
-                                },
-                            shape = MaterialTheme.shapes.small,
-                            border = BorderStroke(1.dp, if (activeStudentId == st.id && activeField == "cq") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("CQ", style = MaterialTheme.typography.labelSmall)
-                                    Text(v.first.ifBlank { "—" }, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                        if (subject.hasMcq) {
-                            Spacer(Modifier.width(5.dp))
+                        val displayedFields = if (firstMarkField == "mcq") listOf("mcq", "cq") else listOf("cq", "mcq")
+                        displayedFields.take(if (subject.hasMcq) 2 else 1).forEachIndexed { index, field ->
+                            if (index > 0) Spacer(Modifier.width(5.dp))
+                            val fieldValue = if (field == "cq") v.first else v.second
                             Surface(
-                                modifier = Modifier
-                                    .width(86.dp)
-                                    .height(56.dp)
-                                    .clickable {
-                                        if (activeStudentId != st.id || activeField != "mcq") autoSaveMark(activeStudentId)
-                                        activeStudentId = st.id
-                                        activeField = "mcq"
-                                    },
+                                modifier = Modifier.width(86.dp).height(56.dp).clickable {
+                                    if (activeStudentId != st.id || activeField != field) autoSaveMark(activeStudentId)
+                                    activeStudentId = st.id
+                                    activeField = field
+                                },
                                 shape = MaterialTheme.shapes.small,
-                                border = BorderStroke(1.dp, if (activeStudentId == st.id && activeField == "mcq") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                                border = BorderStroke(1.dp, if (activeStudentId == st.id && activeField == field) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                             ) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("MCQ", style = MaterialTheme.typography.labelSmall)
-                                        Text(v.second.ifBlank { "—" }, fontWeight = FontWeight.Bold)
+                                        Text(if (field == "cq") "CQ" else "MCQ", style = MaterialTheme.typography.labelSmall)
+                                        Text(fieldValue.ifBlank { "—" }, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -2770,11 +2751,13 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             val activeStudent = classStudents.firstOrNull { it.id == activeStudentId }
             val activeValues = marks[activeStudentId] ?: ("" to "")
             val activeValue = if (activeField == "cq") activeValues.first else activeValues.second
-            Card(
-                Modifier.fillMaxWidth().padding(top = 6.dp).imePadding(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Column(Modifier.padding(8.dp)) {
+            Dialog(onDismissRequest = { autoSaveMark(activeStudentId); activeStudentId = null }) {
+                Card(
+                    Modifier.fillMaxWidth().padding(4.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Column(Modifier.padding(12.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
@@ -2814,6 +2797,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                             onClick = { advanceMarkEntry() },
                             modifier = Modifier.weight(1.3f).height(42.dp)
                         ) { Text("Next →") }
+                    }
                     }
                 }
             }
