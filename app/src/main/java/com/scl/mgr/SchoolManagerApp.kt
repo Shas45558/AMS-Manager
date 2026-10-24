@@ -210,32 +210,47 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             ModalDrawerSheet(modifier = Modifier.width(310.dp)) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                    shape = RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp),
+                    color = Color.Transparent
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier
+                            .background(Brush.linearGradient(listOf(Color(0xFF172554), Color(0xFF4338A8), Color(0xFF0F9D91))))
+                            .padding(start = 22.dp, end = 20.dp, top = 34.dp, bottom = 26.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Surface(
-                            modifier = Modifier.size(58.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.14f)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.School, contentDescription = "AMS Manager", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                modifier = Modifier.size(66.dp),
+                                shape = RoundedCornerShape(22.dp),
+                                color = Color.White.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.24f))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.School, contentDescription = "AMS Manager", tint = Color.White, modifier = Modifier.size(38.dp))
+                                }
+                            }
+                            Spacer(Modifier.width(15.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("AMS Manager", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                                Text("SCHOOL MANAGEMENT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.82f), letterSpacing = androidx.compose.ui.unit.sp(1.2f))
                             }
                         }
-                        Spacer(Modifier.width(14.dp))
-                        Column {
-                            Text("AMS Manager", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
-                            Text("School administration", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f))
-                            Spacer(Modifier.height(5.dp))
-                            Text(activeRole ?: "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
+                        Text("Amtoli Model School", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(shape = RoundedCornerShape(50), color = Color.White.copy(alpha = 0.18f), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f))) {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Text(activeRole ?: "", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                            Text("•  READY", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.82f))
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
+                Text("WORKSPACE", modifier = Modifier.padding(start = 22.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = androidx.compose.ui.unit.sp(1.5f))
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
@@ -886,26 +901,36 @@ private fun AppScaffold(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Text(title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleLarge)
-                        Text("AMTOLI MODEL SCHOOL", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 18.dp, top = 18.dp, bottom = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.size(48.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        IconButton(onClick = {
+                            scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() }
+                        }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() }
-                    }) {
-                        Icon(Icons.Default.Menu, contentDescription = "Open menu")
+                    Spacer(Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text("AMTOLI MODEL SCHOOL", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, letterSpacing = androidx.compose.ui.unit.sp(0.8f))
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.primary
-                )
-            )
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Icon(Icons.Default.School, contentDescription = "School", modifier = Modifier.padding(10.dp).size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+            }
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) { content() }
