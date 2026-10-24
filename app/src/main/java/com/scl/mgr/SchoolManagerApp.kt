@@ -828,7 +828,7 @@ private fun AuthorizationScreen() {
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = classMenuExpanded) },
                             modifier = Modifier.menuAnchor().fillMaxWidth()
                         )
-                        ExposedDropdownMenu(expanded = classMenuExpanded, onDismissRequest = { classMenuExpanded = false }) {
+                        ExposedDropdownMenu(expanded = classMenuExpanded, onDismissRequest = { classMenuExpanded = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
                             (1..10).map { it.toString() }.forEach { classOption ->
                                 DropdownMenuItem(text = { Text("Class $classOption") }, onClick = {
                                     assignmentEdits = assignmentEdits + (teacher.uid to (classOption to assignment.second))
@@ -924,8 +924,8 @@ private fun AppScaffold(
                     .background(
                         brush = Brush.linearGradient(
                             colors = listOf(
+                                Color(0xFFB71C1C),
                                 Color(0xFF006B45),
-                                Color(0xFF008653),
                                 Color(0xFF00A36C)
                             )
                         )
@@ -995,17 +995,21 @@ private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, 
         .map { it.trim() }.filter { it in listOf("A", "B") }.distinct()
     val students = if (teacherMode) allStudents.filter { it.className == assignedClass && it.section in teacherSections } else allStudents
     val totalStudents = students.size
+    var showAboutMe by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(26.dp))
+                .clickable { showAboutMe = true }
                 .background(
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.secondary,
-                            MaterialTheme.colorScheme.tertiary
+                            Color(0xFFB71C1C),
+                            Color(0xFF008653),
+                            Color(0xFF00A36C)
                         )
                     ),
                     shape = RoundedCornerShape(26.dp)
@@ -1018,21 +1022,64 @@ private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, 
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text(if (teacherMode) "Teacher workspace" else "Welcome back", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
-                    Text("Amtoli Model School", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
-                    Text(if (teacherMode) "Class $assignedClass • Section ${teacherSections.joinToString(" + ")}" else "Your school at a glance", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f))
+                    Text("About Me", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.88f))
+                    Text("Arafat Bin Aman Akash", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Assistant Teacher • Tap to view profile", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
                 }
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.13f), modifier = Modifier.size(62.dp)) {
                     Box(contentAlignment = Alignment.Center) {
                         Image(
-                            painter = painterResource(id = com.ams.mgr.R.drawable.amtoli_school_logo),
-                            contentDescription = "Amtoli Model School logo",
+                            painter = painterResource(id = com.ams.mgr.R.drawable.about_me_photo),
+                            contentDescription = "Arafat Bin Aman Akash",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.size(58.dp).clip(CircleShape)
                         )
                     }
                 }
             }
+        }
+
+        if (showAboutMe) {
+            AlertDialog(
+                onDismissRequest = { showAboutMe = false },
+                icon = {
+                    Image(
+                        painter = painterResource(id = com.ams.mgr.R.drawable.about_me_photo),
+                        contentDescription = "Arafat Bin Aman Akash",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(124.dp).clip(CircleShape)
+                    )
+                },
+                title = { Text("Arafat Bin Aman Akash", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Assistant Teacher", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        Text("Amtoli Model School", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "WhatsApp: +880 1840224834",
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable {
+                                showAboutMe = false
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/8801840224834")))
+                            }
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        showAboutMe = false
+                        val whatsappIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/8801840224834"))
+                        context.startActivity(whatsappIntent)
+                    }) {
+                        Icon(Icons.Default.Chat, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Chat on WhatsApp")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { showAboutMe = false }) { Text("Close") } },
+                shape = RoundedCornerShape(28.dp),
+                containerColor = MaterialTheme.colorScheme.surface
+            )
         }
 
         Text("Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
@@ -1535,7 +1582,7 @@ private fun DropdownField(label: String, value: String, options: List<String>, m
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor()
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option) },
@@ -2631,7 +2678,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                         Text("Class $className  ·  Section $section  ·  ${displayExamType(className, examType)}", modifier = Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.labelLarge)
                         Icon(Icons.Default.ExpandMore, contentDescription = "Choose class, section and exam", modifier = Modifier.size(18.dp))
                     }
-                    DropdownMenu(expanded = showClass && !teacherMode, onDismissRequest = { showClass = false }) {
+                    DropdownMenu(expanded = showClass && !teacherMode, onDismissRequest = { showClass = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
                         listOf("6", "7", "8", "9", "10").forEach { value ->
                             DropdownMenuItem(text = { Text("Class $value") }, onClick = {
                                 className = value; subjectIndex = 0; showClass = false
@@ -2639,7 +2686,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                             })
                         }
                     }
-                    DropdownMenu(expanded = showSection && !teacherMode, onDismissRequest = { showSection = false }) {
+                    DropdownMenu(expanded = showSection && !teacherMode, onDismissRequest = { showSection = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.secondaryContainer) {
                         listOf("A", "B").forEach { value ->
                             DropdownMenuItem(text = { Text("Section $value") }, onClick = {
                                 section = value; showSection = false; showExamType = true
@@ -2647,7 +2694,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                         }
                     }
                     if (teacherMode) {
-                        DropdownMenu(expanded = showClass, onDismissRequest = { showClass = false }) {
+                        DropdownMenu(expanded = showClass, onDismissRequest = { showClass = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
                             DropdownMenuItem(text = { Text("Assigned class: $assignedClass") }, onClick = { showClass = false; if (allowedSections.size > 1) showSection = true else showExamType = true })
                         }
                     }
@@ -2675,7 +2722,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                         Spacer(Modifier.width(4.dp))
                         Text("Entry settings: $markEntryPattern · ${if (firstMarkField == "cq") "CQ first" else "MCQ first"}", style = MaterialTheme.typography.labelSmall)
                     }
-                    DropdownMenu(expanded = showEntrySettings, onDismissRequest = { showEntrySettings = false }) {
+                    DropdownMenu(expanded = showEntrySettings, onDismissRequest = { showEntrySettings = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
                         DropdownMenuItem(text = { Text(if (markEntryPattern == "By student") "✓ By student" else "By student") }, onClick = { markEntryPattern = "By student"; showEntrySettings = false })
                         DropdownMenuItem(text = { Text(if (markEntryPattern == "By field") "✓ By field" else "By field") }, onClick = { markEntryPattern = "By field"; showEntrySettings = false })
                         Divider()
@@ -3322,7 +3369,7 @@ private fun MonthlyExamScreen(repository: SchoolRepository, teacherMode: Boolean
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(Modifier.weight(1f)) {
                 if (!teacherMode) OutlinedButton(onClick = { showClass = true }, modifier = Modifier.fillMaxWidth()) { Text("Class $className") }
-                DropdownMenu(showClass && !teacherMode, { showClass = false }) {
+                DropdownMenu(expanded = showClass && !teacherMode, onDismissRequest = { showClass = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
                     listOf("6", "7", "8", "9", "10").forEach { value ->
                         DropdownMenuItem(text = { Text("Class $value") }, onClick = { className = value; subjectIndex = 0; showClass = false })
                     }
@@ -3332,7 +3379,7 @@ private fun MonthlyExamScreen(repository: SchoolRepository, teacherMode: Boolean
                 if (teacherMode && allowedSections.size > 1) {
                     DropdownField("Section", section, allowedSections) { section = it }
                 } else if (!teacherMode) OutlinedButton(onClick = { showSection = true }, modifier = Modifier.fillMaxWidth()) { Text("Section $section") }
-                DropdownMenu(showSection && !teacherMode, { showSection = false }) {
+                DropdownMenu(expanded = showSection && !teacherMode, onDismissRequest = { showSection = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.secondaryContainer) {
                     listOf("A", "B").forEach { value ->
                         DropdownMenuItem(text = { Text("Section $value") }, onClick = { section = value; showSection = false })
                     }
@@ -3340,7 +3387,7 @@ private fun MonthlyExamScreen(repository: SchoolRepository, teacherMode: Boolean
             }
             Box(Modifier.weight(1f)) {
                 OutlinedButton(onClick = { showMonth = true }, modifier = Modifier.fillMaxWidth()) { Text(month) }
-                DropdownMenu(showMonth, { showMonth = false }) {
+                DropdownMenu(expanded = showMonth, onDismissRequest = { showMonth = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
                     val months = (0..11).map { YearMonth.of(YearMonth.now().year, it + 1) }
                     months.forEach { ym ->
                         DropdownMenuItem(text = { Text(ym.format(DateTimeFormatter.ofPattern("MMMM yyyy"))) }, onClick = { month = ym.toString(); showMonth = false })
@@ -3359,7 +3406,7 @@ private fun MonthlyExamScreen(repository: SchoolRepository, teacherMode: Boolean
             ) {
                 Text("Subject: ${selectedSubject.first}")
             }
-            DropdownMenu(showSubject, { showSubject = false }) {
+            DropdownMenu(expanded = showSubject, onDismissRequest = { showSubject = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.secondaryContainer) {
                 subjects.forEachIndexed { index, subject ->
                     DropdownMenuItem(
                         text = { Text("${index + 1}. ${subject.first}") },

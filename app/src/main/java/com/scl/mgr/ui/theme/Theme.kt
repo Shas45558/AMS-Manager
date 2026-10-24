@@ -14,7 +14,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 private val SchoolGreen = Color(0xFF007A4D)
 private val DeepGreen = Color(0xFF004D32)
 private val LeafGreen = Color(0xFF00A36C)
-private val PaleGreen = Color(0xFFE0F3E9)
+private val PaleGreen = Color(0xFFDDF5E8)
+private val MenuMint = Color(0xFFE7F7EE)
+private val MenuRose = Color(0xFFFFE8E5)
 private val Cloud = Color(0xFFF6FAF7)
 private val Slate = Color(0xFF53665C)
 private val SchoolRed = Color(0xFFB71C1C)
@@ -29,17 +31,17 @@ private val LightColors = lightColorScheme(
     onPrimaryContainer = DeepGreen,
     secondary = LeafGreen,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD2EEDD),
+    secondaryContainer = MenuMint,
     onSecondaryContainer = Color(0xFF123D29),
     tertiary = SchoolRed,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFE3E0),
+    tertiaryContainer = MenuRose,
     onTertiaryContainer = Color(0xFF650909),
     background = Cloud,
     onBackground = Color(0xFF172B20),
     surface = Color.White,
     onSurface = Color(0xFF172B20),
-    surfaceVariant = Color(0xFFE8F0EA),
+    surfaceVariant = MenuMint,
     onSurfaceVariant = Slate,
     outline = Color(0xFFB7C9BC),
     error = SchoolRed
@@ -69,11 +71,11 @@ private val DarkColors = darkColorScheme(
 )
 
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(28.dp)
+    extraSmall = RoundedCornerShape(12.dp),
+    small = RoundedCornerShape(18.dp),
+    medium = RoundedCornerShape(22.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(32.dp)
 )
 
 @Composable
