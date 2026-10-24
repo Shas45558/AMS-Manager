@@ -57,6 +57,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
@@ -1591,7 +1593,7 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
         }
 
         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DropdownField("Class", selectedClass, classOptions, Modifier.weight(1f)) {
                         selectedClass = it
@@ -2129,6 +2131,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     var showSection by remember { mutableStateOf(false) }
     var showSubject by remember { mutableStateOf(false) }
     var showMonths by remember { mutableStateOf(false) }
+    var showEntrySettings by remember { mutableStateOf(false) }
     var showReportMonth by remember { mutableStateOf(false) }
     var reportMonth by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
     var activeStudentId by remember { mutableStateOf<Long?>(null) }
@@ -2505,16 +2508,16 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     ),
                     RoundedCornerShape(24.dp)
                 )
-                .padding(14.dp)
+                .padding(9.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.16f)) {
                         Icon(Icons.Default.Assignment, contentDescription = null, tint = Color.White, modifier = Modifier.padding(9.dp).size(24.dp))
                     }
                     Column(Modifier.weight(1f)) {
                         Text("Exam & Results", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("Marks, grades and student performance", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.88f))
+                        Text("Marks, grades and student performance", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.88f))
                     }
                 }
                 Spacer(Modifier.height(3.dp))
@@ -2531,50 +2534,55 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Spacer(Modifier.height(6.dp))
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     Text("EXAM WORKSPACE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    if (!teacherMode) {
-                        Box(Modifier.weight(1f)) {
-                            OutlinedButton({ autoSaveMark(activeStudentId); showClass = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                                Icon(Icons.Default.School, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp)); Text("Class $className")
-                            }
+                Box(Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { autoSaveMark(activeStudentId); activeStudentId = null; showClass = true },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Class $className  ·  Section $section  ·  ${displayExamType(className, examType)}", modifier = Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.labelLarge)
+                        Icon(Icons.Default.ExpandMore, contentDescription = "Choose class, section and exam", modifier = Modifier.size(18.dp))
+                    }
+                    DropdownMenu(expanded = showClass && !teacherMode, onDismissRequest = { showClass = false }) {
+                        listOf("6", "7", "8", "9", "10").forEach { value ->
+                            DropdownMenuItem(text = { Text("Class $value") }, onClick = {
+                                className = value; subjectIndex = 0; showClass = false
+                                showSection = true
+                            })
                         }
-                        Box(Modifier.weight(1f)) {
-                            OutlinedButton({ autoSaveMark(activeStudentId); showSection = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                                Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp)); Text("Section $section")
-                            }
+                    }
+                    DropdownMenu(expanded = showSection && !teacherMode, onDismissRequest = { showSection = false }) {
+                        listOf("A", "B").forEach { value ->
+                            DropdownMenuItem(text = { Text("Section $value") }, onClick = {
+                                section = value; showSection = false; showExamType = true
+                            })
                         }
-                    } else {
-                        Column(Modifier.weight(1f)) {
-                            Text("Assigned class", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Class $assignedClass", fontWeight = FontWeight.SemiBold)
+                    }
+                    if (teacherMode) {
+                        DropdownMenu(expanded = showClass, onDismissRequest = { showClass = false }) {
+                            DropdownMenuItem(text = { Text("Assigned class: $assignedClass") }, onClick = { showClass = false; if (allowedSections.size > 1) showSection = true else showExamType = true })
                         }
-                        if (allowedSections.size > 1) DropdownField("Section", section, allowedSections) { section = it }
-                        else Text("Section ${allowedSections.firstOrNull() ?: assignedSection}", fontWeight = FontWeight.SemiBold)
                     }
                 }
-                OutlinedButton({ autoSaveMark(activeStudentId); activeStudentId = null; showExamType = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Default.EventNote, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(displayExamType(className, examType), modifier = Modifier.weight(1f))
-                    Icon(Icons.Default.ExpandMore, contentDescription = "Choose exam")
-                }
+
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(4.dp))
         TabRow(selectedTabIndex = tab) {
             Tab(tab == 0, { tab = 0 }, text = { Text("Enter Marks") })
             Tab(tab == 1, { autoSaveMark(activeStudentId); activeStudentId = null; tab = 1; calculateResults() }, text = { Text("Results") })
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(3.dp))
         if (tab == 0) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Subject: ${subject.name} (Max ${subject.max})", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -2582,38 +2590,26 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             }
             Text(if (subject.hasMcq) "Enter CQ and MCQ. Total is calculated automatically." else "Enter marks. This subject has no MCQ.", style = MaterialTheme.typography.bodySmall)
             if (subject.hasMcq) {
-                Spacer(Modifier.height(6.dp))
-                Text("Entry pattern", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (markEntryPattern == "By student") {
-                        Button(onClick = { markEntryPattern = "By student" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("By student", maxLines = 1) }
-                    } else {
-                        OutlinedButton(onClick = { markEntryPattern = "By student" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("By student", maxLines = 1) }
+                Spacer(Modifier.height(2.dp))
+                Box {
+                    TextButton(onClick = { showEntrySettings = true }, contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Entry settings: $markEntryPattern · ${if (firstMarkField == "cq") "CQ first" else "MCQ first"}", style = MaterialTheme.typography.labelSmall)
                     }
-                    if (markEntryPattern == "By field") {
-                        Button(onClick = { markEntryPattern = "By field" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("By field", maxLines = 1) }
-                    } else {
-                        OutlinedButton(onClick = { markEntryPattern = "By field" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("By field", maxLines = 1) }
-                    }
-                }
-                Text("First field", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (firstMarkField == "cq") {
-                        Button(onClick = { firstMarkField = "cq"; activeField = "cq" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("CQ first") }
-                    } else {
-                        OutlinedButton(onClick = { firstMarkField = "cq"; activeField = "cq" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("CQ first") }
-                    }
-                    if (firstMarkField == "mcq") {
-                        Button(onClick = { firstMarkField = "mcq"; activeField = "mcq" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("MCQ first") }
-                    } else {
-                        OutlinedButton(onClick = { firstMarkField = "mcq"; activeField = "mcq" }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("MCQ first") }
+                    DropdownMenu(expanded = showEntrySettings, onDismissRequest = { showEntrySettings = false }) {
+                        DropdownMenuItem(text = { Text(if (markEntryPattern == "By student") "✓ By student" else "By student") }, onClick = { markEntryPattern = "By student"; showEntrySettings = false })
+                        DropdownMenuItem(text = { Text(if (markEntryPattern == "By field") "✓ By field" else "By field") }, onClick = { markEntryPattern = "By field"; showEntrySettings = false })
+                        Divider()
+                        DropdownMenuItem(text = { Text(if (firstMarkField == "cq") "✓ CQ first" else "CQ first") }, onClick = { firstMarkField = "cq"; activeField = "cq"; showEntrySettings = false })
+                        DropdownMenuItem(text = { Text(if (firstMarkField == "mcq") "✓ MCQ first" else "MCQ first") }, onClick = { firstMarkField = "mcq"; activeField = "mcq"; showEntrySettings = false })
                     }
                 }
                 Text(if (markEntryPattern == "By student") "Next: switch field for this student, then move to the next student." else "Next: keep the same field for every student, then switch fields.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(2.dp))
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 3.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1.3f))
@@ -2660,7 +2656,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     }
                 }
             }
-            Text("Auto-save is on • marks save when you move to another field; sync runs when internet is available.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Auto-save on • syncs when online", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             if (!class10HasNoMonthlyExam) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2751,7 +2747,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             val activeStudent = classStudents.firstOrNull { it.id == activeStudentId }
             val activeValues = marks[activeStudentId] ?: ("" to "")
             val activeValue = if (activeField == "cq") activeValues.first else activeValues.second
-            Dialog(onDismissRequest = { autoSaveMark(activeStudentId); activeStudentId = null }) {
+            Popup(alignment = Alignment.BottomCenter, onDismissRequest = { autoSaveMark(activeStudentId); activeStudentId = null }, properties = PopupProperties(focusable = true, clippingEnabled = false)) {
                 Card(
                     Modifier.fillMaxWidth().padding(4.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
