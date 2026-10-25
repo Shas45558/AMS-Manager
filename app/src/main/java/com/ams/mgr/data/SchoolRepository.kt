@@ -2,6 +2,7 @@ package com.ams.mgr.data
 
 import android.content.Context
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 class SchoolRepository(private val db: AppDatabase, private val context: Context) {
     fun students(query: String): Flow<List<Student>> =
@@ -37,11 +38,25 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
         AutoSyncScheduler.enqueue(context)
     }
 
+    suspend fun saveFaceTemplate(template: FaceTemplate) {
+        db.faceTemplateDao().upsert(template)
+        AutoSyncScheduler.enqueue(context)
+    }
+
+    suspend fun getFaceTemplate(studentId: Long): FaceTemplate? = db.faceTemplateDao().getForStudent(studentId)
+
+    suspend fun getAllFaceTemplates(): List<FaceTemplate> = db.faceTemplateDao().observeAll().first()
+
+    suspend fun deleteFaceTemplate(studentId: Long) {
+        db.faceTemplateDao().deleteForStudent(studentId)
+    }
+
     suspend fun deleteStudent(student: Student) {
         // Queue the deletion locally until sync removes the cloud record and related data.
         db.pendingStudentUpsertDao().remove(student.id)
         db.pendingStudentDeletionDao().add(PendingStudentDeletion(student.id, className = student.className, section = student.section))
         db.attendanceDao().deleteForStudent(student.id)
+        db.faceTemplateDao().deleteForStudent(student.id)
         db.monthlyExamDao().deleteForStudent(student.id)
         db.examMarkDao().deleteForStudent(student.id)
         db.studentDao().delete(student)

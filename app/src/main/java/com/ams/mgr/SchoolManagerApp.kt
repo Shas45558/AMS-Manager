@@ -88,6 +88,8 @@ import com.ams.mgr.data.Student
 import com.ams.mgr.data.MonthlyExam
 import com.ams.mgr.data.AppDatabase
 import com.ams.mgr.data.ExamMark
+import com.ams.mgr.face.FaceAttendanceScreen
+import com.ams.mgr.face.FaceEnrollmentScreen
 import com.ams.mgr.data.FirebaseSchoolSync
 import com.ams.mgr.data.AutoSyncScheduler
 import java.time.LocalDate
@@ -397,7 +399,31 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             }
             composable("attendance") {
                 AppScaffold("Attendance", drawerState, scope) {
-                    AttendanceScreen(repository, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "")
+                    AttendanceScreen(repository, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "", onFaceAttendance = { cls, sec, dt -> navController.navigate("face-attendance/${android.net.Uri.encode(cls)}/${android.net.Uri.encode(sec)}/${android.net.Uri.encode(dt)}") })
+                }
+            }
+            composable(
+                "face-enroll/{id}",
+                arguments = listOf(navArgument("id") { type = NavType.LongType })
+            ) { backStack ->
+                val id = backStack.arguments?.getLong("id") ?: return@composable
+                AppScaffold("Register Face", drawerState, scope) {
+                    FaceEnrollmentScreen(repository, id) { navController.popBackStack() }
+                }
+            }
+            composable(
+                "face-attendance/{className}/{section}/{date}",
+                arguments = listOf(
+                    navArgument("className") { type = NavType.StringType },
+                    navArgument("section") { type = NavType.StringType },
+                    navArgument("date") { type = NavType.StringType }
+                )
+            ) { backStack ->
+                val cls = backStack.arguments?.getString("className") ?: ""
+                val sec = backStack.arguments?.getString("section") ?: ""
+                val dt = backStack.arguments?.getString("date") ?: LocalDate.now().toString()
+                AppScaffold("Face Attendance", drawerState, scope) {
+                    FaceAttendanceScreen(repository, cls, sec, dt) { navController.popBackStack() }
                 }
             }
             composable("monthly_exam") {
@@ -428,6 +454,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         assignedClass = authPrefs.getString("assigned_class", "") ?: "",
                         assignedSection = authPrefs.getString("assigned_section", "") ?: "",
                         onBack = { navController.popBackStack() },
+                        onRegisterFace = { navController.navigate("face-enroll/$id") },
                         onEdit = { navController.navigate("student/$id/edit") },
                         onDeleted = { navController.popBackStack() }
                     )
@@ -1753,7 +1780,7 @@ private fun countAttendanceOnWorkingDays(records: List<com.ams.mgr.data.Attendan
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String) {
+private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, onFaceAttendance: (String, String, String) -> Unit) {
     val context = LocalContext.current
     val closurePrefs = remember { context.getSharedPreferences("school_closures", Context.MODE_PRIVATE) }
     var closures by remember { mutableStateOf(loadSchoolClosures(closurePrefs)) }
@@ -1849,6 +1876,14 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(value = date, onValueChange = { date = it.take(10) }, label = { Text("YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true, isError = selectedAttendanceDate == null)
                         TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Today") }
+                        Button(
+                            onClick = {
+                                val cls = if (teacherMode) assignedClass else selectedClass
+                                val sec = if (teacherMode) assignedSection else selectedSection
+                                if (cls != "All" && sec != "All" && selectedAttendanceDate != null && !attendanceClosed) onFaceAttendance(cls, sec, date)
+                            },
+                            enabled = selectedAttendanceDate != null && !attendanceClosed && selectedClass != "All" && selectedSection != "All" || (teacherMode && selectedAttendanceDate != null && !attendanceClosed)
+                        ) { Text("Face Attendance") }
                     }
                     if (attendanceClosed) {
                         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -2043,6 +2078,7 @@ private fun StudentDetailsScreen(
     assignedClass: String,
     assignedSection: String,
     onBack: () -> Unit,
+    onRegisterFace: () -> Unit,
     onEdit: () -> Unit,
     onDeleted: () -> Unit
 ) {
@@ -2099,6 +2135,11 @@ private fun StudentDetailsScreen(
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Delete")
                     }
+                }
+                OutlinedButton(onClick = onRegisterFace, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Face, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Register / Replace Face")
                 }
             }
             item {
