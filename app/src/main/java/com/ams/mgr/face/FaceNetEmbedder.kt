@@ -4,14 +4,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
-import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.channels.FileChannel
 import kotlin.math.sqrt
 
-/** Offline FaceNet inference. Put a compatible 160x160 RGB FaceNet model at assets/facenet_512.tflite. */
-class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.tflite") : Closeable {
+/** Offline FaceNet inference. Put a compatible 160x160 RGB FaceNet model at assets/facenet_512.bin. */
+class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") : Closeable {
     private val interpreter: Interpreter = Interpreter(loadAsset(context, modelAsset), Interpreter.Options().apply { setNumThreads(4) })
     private val outputSize: Int = interpreter.getOutputTensor(0).shape().last()
 
@@ -50,10 +48,11 @@ class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.tflite
 
     companion object {
         private fun loadAsset(context: Context, name: String): ByteBuffer {
-            val descriptor = context.assets.openFd(name)
-            FileInputStream(descriptor.fileDescriptor).use { stream ->
-                val channel = stream.channel
-                return channel.map(FileChannel.MapMode.READ_ONLY, descriptor.startOffset, descriptor.length)
+            context.assets.open(name).use { input ->
+                val bytes = input.readBytes()
+                return ByteBuffer.allocateDirect(bytes.size)
+                    .order(ByteOrder.nativeOrder())
+                    .apply { put(bytes); rewind() }
             }
         }
     }

@@ -28,3 +28,7 @@ Build could not be run in this environment: the project wrapper script reports t
 - Matching threshold remains 0.72 and should be calibrated with real school enrollment samples.
 - Attendance is written through the existing offline Room/Firebase sync path and duplicate attendance is prevented by the existing student/date unique index.
 - Anti-spoof model files are bundled and a wrapper is included, but its 3-class label mapping has not been used to block attendance until the supplied model is validated against known live/spoof samples.
+
+
+## Firebase face enrollment sync
+Face enrollment stores only the numerical FaceNet embedding locally. The embedding is queued and synced to Firestore in `schools/ams-manager-b1434/faceTemplates/{studentId}` when online. Original face photos are not uploaded.

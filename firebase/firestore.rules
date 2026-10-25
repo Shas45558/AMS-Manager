@@ -84,6 +84,11 @@ service cloud.firestore {
     }
     // Teacher queries must constrain className + section, because Firestore rules
     // are not filters and cannot authorize a broad studentId-only query.
+    match /schools/{schoolId}/faceTemplates/{studentId} {
+      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
+      allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
+    }
     match /schools/{schoolId}/attendance/{recordId} {
       allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));

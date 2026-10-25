@@ -14,8 +14,11 @@ android {
         applicationId = "com.ams.mgr"
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "1.54"
+        versionCode = 29
+        versionName = "1.55"
+        // The production phones targeted by this app are ARM Android devices.
+        // Excluding x86/x86_64 native libraries substantially reduces the release APK.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // Release is optimized to reduce the final APK size.

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -100,6 +101,25 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
         Text(status, modifier = Modifier.padding(16.dp))
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDone, modifier = Modifier.weight(1f)) { Text("Back") }
+            if (registered) {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            repository.deleteFaceTemplate(studentId)
+                            registered = false
+                            samples = 0
+                            embeddings.clear()
+                            status = "Face registration deleted. You can register a new face."
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Delete Face")
+                }
+            }
         }
     }
 }
@@ -151,9 +171,9 @@ fun FaceAttendanceScreen(
         scope.launch {
             try {
                 val embedding = withContext(Dispatchers.Default) { embedder.embed(bitmap) }
-                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.72f)
+                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.55f)
                 if (match == null) {
-                    lastResult = "Face not recognized"
+                    lastResult = "Face detected, but no registered student matched (best confidence below 55%)."
                     lastScore = 0f
                 } else {
                     val student = activeStudents.firstOrNull { it.id == match.studentId }

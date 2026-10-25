@@ -35,11 +35,13 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
     suspend fun updateStudent(student: Student) {
         db.studentDao().update(student)
         db.pendingStudentUpsertDao().add(PendingStudentUpsert(student.id))
+        if (db.faceTemplateDao().getForStudent(student.id) != null) db.faceTemplateDao().markDirty(student.id)
         AutoSyncScheduler.enqueue(context)
     }
 
     suspend fun saveFaceTemplate(template: FaceTemplate) {
-        db.faceTemplateDao().upsert(template)
+        db.faceTemplateDao().upsert(template.copy(syncedAt = 0L))
+        db.pendingFaceDeletionDao().remove(template.studentId)
         AutoSyncScheduler.enqueue(context)
     }
 
@@ -49,6 +51,8 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
 
     suspend fun deleteFaceTemplate(studentId: Long) {
         db.faceTemplateDao().deleteForStudent(studentId)
+        db.pendingFaceDeletionDao().add(PendingFaceDeletion(studentId))
+        AutoSyncScheduler.enqueue(context)
     }
 
     suspend fun deleteStudent(student: Student) {
@@ -57,6 +61,7 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
         db.pendingStudentDeletionDao().add(PendingStudentDeletion(student.id, className = student.className, section = student.section))
         db.attendanceDao().deleteForStudent(student.id)
         db.faceTemplateDao().deleteForStudent(student.id)
+        db.pendingFaceDeletionDao().add(PendingFaceDeletion(student.id))
         db.monthlyExamDao().deleteForStudent(student.id)
         db.examMarkDao().deleteForStudent(student.id)
         db.studentDao().delete(student)
@@ -103,6 +108,7 @@ class SchoolRepository(private val db: AppDatabase, private val context: Context
                 sscYear = if (nextClass == "10" && change.outcome == "Repeat") targetYear else current.sscYear
             ))
             db.pendingStudentUpsertDao().add(PendingStudentUpsert(current.id))
+            if (db.faceTemplateDao().getForStudent(current.id) != null) db.faceTemplateDao().markDirty(current.id)
         }
         AutoSyncScheduler.enqueue(context)
     }

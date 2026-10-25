@@ -63,12 +63,18 @@ class FaceCameraAnalyzer(
     fun close() { detector.close() }
 
     private fun cropFace(bitmap: Bitmap, box: Rect): Bitmap? {
-        val padX = (box.width() * 0.22f).toInt()
-        val padY = (box.height() * 0.28f).toInt()
-        val left = max(0, box.left - padX)
-        val top = max(0, box.top - padY)
-        val right = min(bitmap.width, box.right + padX)
-        val bottom = min(bitmap.height, box.bottom + padY)
+        // FaceNet works best when enrollment and attendance use a consistent square crop.
+        val side = max(box.width(), box.height())
+        val pad = (side * 0.30f).toInt()
+        val cropSide = side + pad * 2
+        val cx = box.centerX()
+        val cy = box.centerY()
+        var left = cx - cropSide / 2
+        var top = cy - cropSide / 2
+        left = left.coerceIn(0, max(0, bitmap.width - cropSide))
+        top = top.coerceIn(0, max(0, bitmap.height - cropSide))
+        val right = min(bitmap.width, left + cropSide)
+        val bottom = min(bitmap.height, top + cropSide)
         if (right <= left || bottom <= top) return null
         return Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
     }

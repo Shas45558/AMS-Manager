@@ -438,7 +438,9 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             }
             composable("student/add") {
                 AppScaffold("Add Student", drawerState, scope) {
-                    StudentFormScreen(repository, null, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "", assignedSections = (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it.isNotBlank() }) { navController.popBackStack() }
+                    StudentFormScreen(repository, null, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "", assignedSections = (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it.isNotBlank() }) { savedId ->
+                    if (savedId < 0L) navController.navigate("face-enroll/${-savedId}") else navController.popBackStack()
+                }
                 }
             }
             composable(
@@ -1589,7 +1591,7 @@ private fun StudentCard(student: Student, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, teacherMode: Boolean, assignedClass: String, assignedSection: String, assignedSections: List<String> = listOf(assignedSection).filter { it.isNotBlank() }, onSaved: () -> Unit) {
+private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, teacherMode: Boolean, assignedClass: String, assignedSection: String, assignedSections: List<String> = listOf(assignedSection).filter { it.isNotBlank() }, onSaved: (Long) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, 0) }
@@ -1605,6 +1607,7 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
     var address by remember { mutableStateOf("") }
     var mobile by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var registerFaceAfterSave by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(studentId) {
         if (studentId != null) {
@@ -1665,7 +1668,7 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
                     error = "This class, section and roll already exists. Student was not added."
                     return@launch
                 }
-                if (existing == null) repository.addStudent(student) else repository.updateStudent(student)
+                val savedId = if (existing == null) repository.addStudent(student) else { repository.updateStudent(student); student.id }
                 prefs.edit()
                     .putString("class", className)
                     .putString("section", section)
@@ -1673,7 +1676,7 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
                     .putString("gender", gender)
                     .putString("religion", religion)
                     .apply()
-                onSaved()
+                onSaved(if (existing == null && registerFaceAfterSave) -savedId else savedId)
             } catch (_: IllegalArgumentException) {
                 error = "This class, section and roll already exists. Student was not added."
             }
@@ -1700,10 +1703,19 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
             FormField("Father's Name", father) { father = it }
             FormField("Address", address, minLines = 3) { address = it }
             FormField("Mobile Number", mobile) { mobile = it }
+            if (existing == null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = registerFaceAfterSave, onCheckedChange = { registerFaceAfterSave = it })
+                    Column {
+                        Text("Register face now (optional)", fontWeight = FontWeight.SemiBold)
+                        Text("You can also register it later from Student Details.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
 
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp)) }
             Button(onClick = ::save, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                Text(if (existing == null) "Add Student" else "Save Changes")
+                Text(if (existing == null) if (registerFaceAfterSave) "Add Student & Register Face" else "Add Student" else "Save Changes")
             }
         }
     }
