@@ -50,7 +50,7 @@ class FaceCameraAnalyzer(
                         val cropped = cropFace(bitmap, face.boundingBox)
                         if (cropped != null) onFace(cropped)
                         if (bitmap !== cropped) bitmap.recycle()
-                    }.onFailure { onError(it) }
+                    }.onFailure { throwable -> onError(throwable as? Exception ?: Exception(throwable)) }
                 }
             }
             .addOnFailureListener { onError(it as? Exception ?: Exception(it)) }
