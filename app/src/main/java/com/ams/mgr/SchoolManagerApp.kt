@@ -1873,17 +1873,42 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
                         }
                         IconButton(onClick = { showDatePicker = true }) { Icon(Icons.Default.DateRange, contentDescription = "Choose attendance date") }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = date, onValueChange = { date = it.take(10) }, label = { Text("YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true, isError = selectedAttendanceDate == null)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = date,
+                            onValueChange = { date = it.take(10) },
+                            label = { Text("YYYY-MM-DD") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            isError = selectedAttendanceDate == null
+                        )
                         TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Today") }
-                        Button(
-                            onClick = {
-                                val cls = if (teacherMode) assignedClass else selectedClass
-                                val sec = if (teacherMode) assignedSection else selectedSection
-                                if (cls != "All" && sec != "All" && selectedAttendanceDate != null && !attendanceClosed) onFaceAttendance(cls, sec, date)
-                            },
-                            enabled = selectedAttendanceDate != null && !attendanceClosed && selectedClass != "All" && selectedSection != "All" || (teacherMode && selectedAttendanceDate != null && !attendanceClosed)
-                        ) { Text("Face Attendance") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    val faceClass = if (teacherMode) assignedClass else selectedClass
+                    val faceSection = if (teacherMode) assignedSection else selectedSection
+                    val canUseFaceAttendance = selectedAttendanceDate != null && !attendanceClosed &&
+                        faceClass.isNotBlank() && faceClass != "All" &&
+                        faceSection.isNotBlank() && faceSection != "All"
+                    Button(
+                        onClick = {
+                            if (canUseFaceAttendance) onFaceAttendance(faceClass, faceSection, date)
+                        },
+                        enabled = canUseFaceAttendance,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 14.dp)
+                    ) {
+                        Icon(Icons.Default.Face, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Face ID Attendance", fontWeight = FontWeight.Bold)
+                    }
+                    if (!canUseFaceAttendance && !attendanceClosed) {
+                        Text(
+                            if (teacherMode) "Face ID Attendance is available for your assigned class and section."
+                            else "Select a Class and Section above to use Face ID Attendance.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     if (attendanceClosed) {
                         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
