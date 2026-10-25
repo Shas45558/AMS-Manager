@@ -115,6 +115,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
 
     fun hasInternetConnection(): Boolean {
         val manager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -214,8 +215,8 @@ fun SchoolManagerApp(repository: SchoolRepository) {
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(310.dp),
-                drawerContainerColor = MaterialTheme.colorScheme.background,
-                drawerContentColor = MaterialTheme.colorScheme.onBackground
+                drawerContainerColor = Color(0xFF031B15),
+                drawerContentColor = Color(0xFFE8FFF2),
             ) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -224,8 +225,12 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                 ) {
                     Column(
                         modifier = Modifier
-                            .background(Brush.linearGradient(listOf(Color(0xFF006B45), Color(0xFF008653), Color(0xFF00A36C))))
-                            .padding(start = 22.dp, end = 20.dp, top = 34.dp, bottom = 26.dp),
+                            .background(Brush.linearGradient(
+                                colors = listOf(Color(0xFF003B2C), Color(0xFF006B45), Color(0xFF00A86B), Color(0xFF064A37)),
+                                start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                end = androidx.compose.ui.geometry.Offset(900f, 1300f)
+                            ))
+                            .padding(start = 22.dp, end = 20.dp, top = 32.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -250,7 +255,8 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                                 Text("SCHOOL MANAGEMENT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.82f), letterSpacing = 1.2.sp)
                             }
                         }
-                        Text("Amtoli Model School", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        Text("Amtoli Model School", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("LEARN  •  GROW  •  SUCCEED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF9AFFC9), letterSpacing = 1.5.sp)
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Surface(shape = RoundedCornerShape(50), color = Color.White.copy(alpha = 0.18f), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f))) {
                                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -263,8 +269,8 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
-                Text("WORKSPACE", modifier = Modifier.padding(start = 22.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF72F5B2), letterSpacing = 1.5.sp)
+                Spacer(Modifier.height(16.dp))
+                Text("▦   WORKSPACE", modifier = Modifier.padding(start = 22.dp, bottom = 8.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF72F5B2), letterSpacing = 1.8.sp)
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
@@ -273,9 +279,18 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                             NavigationDrawerItem(
                                 label = { Text(item.label) },
                                 icon = { Icon(item.icon, contentDescription = null) },
-                                selected = false,
+                                selected = currentRoute == item.route,
                                 onClick = { navigateFromDrawer(item.route) },
-                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(22.dp),
+                                colors = NavigationDrawerItemDefaults.colors(
+                                    selectedContainerColor = Color(0xFF00A86B),
+                                    unselectedContainerColor = Color(0xFF062E24),
+                                    selectedTextColor = Color.White,
+                                    unselectedTextColor = Color(0xFFE1F5E9),
+                                    selectedIconColor = Color.White,
+                                    unselectedIconColor = Color(0xFF72F5B2)
+                                )
                             )
                         }
                     }
@@ -291,10 +306,16 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                                     launchSingleTop = true
                                 }
                             },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(22.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                unselectedContainerColor = Color(0xFF062E24),
+                                unselectedTextColor = Color(0xFFE1F5E9),
+                                unselectedIconColor = Color(0xFF72F5B2)
+                            )
                         )
                     }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), color = Color(0xFF14684B))
                     NavigationDrawerItem(
                         label = { Text("About") },
                         icon = { Icon(Icons.Default.Info, contentDescription = null) },
@@ -306,7 +327,13 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                                 launchSingleTop = true
                             }
                         },
-                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(22.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color(0xFF062E24),
+                            unselectedTextColor = Color(0xFFE1F5E9),
+                            unselectedIconColor = Color(0xFF72F5B2)
+                        )
                     )
                 }
             }
