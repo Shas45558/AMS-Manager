@@ -2739,46 +2739,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        // Premium workspace header: visual-only styling; exam rules and data flow stay unchanged.
-        Box(
-            Modifier.fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.tertiary,
-                            MaterialTheme.colorScheme.secondary
-                        )
-                    ),
-                    RoundedCornerShape(24.dp)
-                )
-                .padding(9.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.16f)) {
-                        Icon(Icons.Filled.Assignment, contentDescription = null, tint = Color.White, modifier = Modifier.padding(9.dp).size(24.dp))
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text("Exam & Results", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("Marks, grades and student performance", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.88f))
-                    }
-                }
-                Spacer(Modifier.height(3.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(50)) {
-                        Text("Class $className", modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = Color.White, style = MaterialTheme.typography.labelLarge)
-                    }
-                    Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(50)) {
-                        Text("Section $section", modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = Color.White, style = MaterialTheme.typography.labelLarge)
-                    }
-                    Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(50)) {
-                        Text(displayExamType(className, examType), modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = Color.White, style = MaterialTheme.typography.labelLarge)
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
+        // Removed redundant Exam & Results banner; the exam workspace selector remains.
         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
