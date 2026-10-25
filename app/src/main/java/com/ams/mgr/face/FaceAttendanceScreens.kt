@@ -115,7 +115,18 @@ fun FaceAttendanceScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val allStudents by repository.students("").collectAsState(initial = emptyList())
-    val students = remember(allStudents, className, section) { allStudents.filter { it.activeStatus == "active" && it.className == className && it.section == section } }
+    // Keep the complete active-student list for recognition. The selected class/section
+    // is applied after a face is identified; filtering before matching can make a valid
+    // registered template look like an "Unknown student" when formatting differs slightly.
+    val activeStudents = remember(allStudents) {
+        allStudents.filter { it.activeStatus.trim().equals("active", ignoreCase = true) }
+    }
+    val students = remember(activeStudents, className, section) {
+        activeStudents.filter {
+            it.className.trim().equals(className.trim(), ignoreCase = true) &&
+            it.section.trim().equals(section.trim(), ignoreCase = true)
+        }
+    }
     var templates by remember { mutableStateOf<List<FaceTemplate>>(emptyList()) }
     val marked = remember { mutableStateListOf<Long>() }
     var lastResult by remember { mutableStateOf("Scanning…") }
@@ -125,8 +136,11 @@ fun FaceAttendanceScreen(
     val embedder = remember { FaceNetEmbedder(context) }
     DisposableEffect(Unit) { onDispose { embedder.close() } }
 
-    LaunchedEffect(students, date) {
-        templates = students.mapNotNull { repository.getFaceTemplate(it.id) }
+    LaunchedEffect(activeStudents, date) {
+        // Match against all active registered faces, then enforce the selected class/section.
+        // This prevents a valid face from being reported as unknown simply because the
+        // class/section text has different capitalization or whitespace.
+        templates = activeStudents.mapNotNull { repository.getFaceTemplate(it.id) }
         students.forEach { if (repository.attendanceForDate(it.id, date)?.present == true && !marked.contains(it.id)) marked += it.id }
     }
 
@@ -142,16 +156,23 @@ fun FaceAttendanceScreen(
                     lastResult = "Face not recognized"
                     lastScore = 0f
                 } else {
-                    val student = students.firstOrNull { it.id == match.studentId }
+                    val student = activeStudents.firstOrNull { it.id == match.studentId }
                     if (student == null) {
-                        lastResult = "Unknown student"
-                    } else {
-                        lastRecognizedAt = now
+                        lastResult = "Registered face found, but student record is missing"
                         lastScore = match.similarity
-                        val alreadyPresent = repository.attendanceForDate(student.id, date)?.present == true
-                        if (!alreadyPresent) repository.markAttendance(student.id, date, true)
-                        if (!marked.contains(student.id)) marked += student.id
-                        lastResult = if (alreadyPresent) "${student.studentName} — already present" else "${student.studentName} — Present"
+                    } else {
+                        val sameClass = student.className.trim().equals(className.trim(), ignoreCase = true)
+                        val sameSection = student.section.trim().equals(section.trim(), ignoreCase = true)
+                        lastScore = match.similarity
+                        if (!sameClass || !sameSection) {
+                            lastResult = "${student.studentName} — not in Class $className-$section"
+                        } else {
+                            lastRecognizedAt = now
+                            val alreadyPresent = repository.attendanceForDate(student.id, date)?.present == true
+                            if (!alreadyPresent) repository.markAttendance(student.id, date, true)
+                            if (!marked.contains(student.id)) marked += student.id
+                            lastResult = if (alreadyPresent) "${student.studentName} — already present" else "${student.studentName} — Present"
+                        }
                     }
                 }
             } catch (e: Exception) {
