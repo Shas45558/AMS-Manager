@@ -53,7 +53,7 @@ class FaceCameraAnalyzer(
                     }.onFailure { onError(it) }
                 }
             }
-            .addOnFailureListener { onError(it) }
+            .addOnFailureListener { onError(it as? Exception ?: Exception(it)) }
             .addOnCompleteListener {
                 busy.set(false)
                 imageProxy.close()

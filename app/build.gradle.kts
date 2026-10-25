@@ -96,6 +96,8 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
+    // CameraX ProcessCameraProvider exposes Guava ListenableFuture on the public API.
+    implementation("com.google.guava:guava:33.3.1-android")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
