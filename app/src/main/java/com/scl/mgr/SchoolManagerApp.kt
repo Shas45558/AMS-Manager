@@ -212,7 +212,11 @@ fun SchoolManagerApp(repository: SchoolRepository) {
         drawerState = drawerState,
         gesturesEnabled = true,
         drawerContent = {
-            ModalDrawerSheet(modifier = Modifier.width(310.dp)) {
+            ModalDrawerSheet(
+                modifier = Modifier.width(310.dp),
+                drawerContainerColor = MaterialTheme.colorScheme.background,
+                drawerContentColor = MaterialTheme.colorScheme.onBackground
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp),
@@ -260,7 +264,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                Text("WORKSPACE", modifier = Modifier.padding(start = 22.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = 1.5.sp)
+                Text("WORKSPACE", modifier = Modifier.padding(start = 22.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF72F5B2), letterSpacing = 1.5.sp)
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
@@ -924,9 +928,10 @@ private fun AppScaffold(
                     .background(
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                Color(0xFFB71C1C),
+                                Color(0xFF03251B),
                                 Color(0xFF006B45),
-                                Color(0xFF00A36C)
+                                Color(0xFF00A36C),
+                                Color(0xFF063B2C)
                             )
                         )
                     )
