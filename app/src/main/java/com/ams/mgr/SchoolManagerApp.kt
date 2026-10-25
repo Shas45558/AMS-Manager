@@ -221,6 +221,9 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                 modifier = Modifier.width(310.dp),
                 drawerContainerColor = Color(0xFF031B15),
                 drawerContentColor = Color(0xFFE8FFF2),
+                // Let the gradient paint behind the status bar/notch instead of leaving
+                // a separate blank inset strip at the top of the drawer.
+                windowInsets = WindowInsets(0, 0, 0, 0),
             ) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -234,7 +237,8 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                                 start = androidx.compose.ui.geometry.Offset(0f, 0f),
                                 end = androidx.compose.ui.geometry.Offset(900f, 1300f)
                             ))
-                            .padding(start = 22.dp, end = 20.dp, top = 32.dp, bottom = 24.dp),
+                            .statusBarsPadding()
+                            .padding(start = 22.dp, end = 20.dp, top = 12.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -282,11 +286,23 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         items(visibleItems, key = { it.route }) { item ->
                             NavigationDrawerItem(
                                 label = { Text(item.label) },
-                                icon = { Icon(item.icon, contentDescription = null) },
+                                icon = {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (currentRoute == item.route) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.07f),
+                                        border = BorderStroke(1.dp, Color.White.copy(alpha = if (currentRoute == item.route) 0.34f else 0.12f)),
+                                        shadowElevation = if (currentRoute == item.route) 8.dp else 2.dp,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(item.icon, contentDescription = null, modifier = Modifier.size(21.dp))
+                                        }
+                                    }
+                                },
                                 selected = currentRoute == item.route,
                                 onClick = { navigateFromDrawer(item.route) },
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(22.dp),
+                                shape = RoundedCornerShape(20.dp),
                                 colors = NavigationDrawerItemDefaults.colors(
                                     selectedContainerColor = Color(0xFF00A86B),
                                     unselectedContainerColor = Color(0xFF062E24),
@@ -535,16 +551,39 @@ private fun LoginScreen(
             }
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Image(
-            painter = painterResource(id = com.ams.mgr.R.drawable.amtoli_school_logo),
-            contentDescription = "Amtoli Model School logo",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(88.dp).clip(CircleShape)
-        )
+    Column(
+        Modifier.fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF071B15), Color(0xFF0B3024), Color(0xFF061711))))
+            .verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            modifier = Modifier.size(104.dp),
+            shape = RoundedCornerShape(32.dp),
+            color = Color.White.copy(alpha = 0.10f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.32f)),
+            shadowElevation = 16.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Image(
+                    painter = painterResource(id = com.ams.mgr.R.drawable.amtoli_school_logo),
+                    contentDescription = "Amtoli Model School logo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(88.dp).clip(CircleShape)
+                )
+            }
+        }
         Text("AMS Manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Sign in with Firebase", style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = { startGoogleSignIn() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Signing in…" else "Admin — Google Sign-In") }
+        ElevatedButton(
+            onClick = { startGoogleSignIn() }, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+            elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 8.dp, pressedElevation = 2.dp)
+        ) {
+            Icon(Icons.Default.VerifiedUser, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (busy) "Signing in…" else "Admin — Google Sign-In")
+        }
         HorizontalDivider()
         Text("Teacher / Co-admin login", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(teacherId, { teacherId = it.trim(); error = "" }, label = { Text("User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -588,7 +627,11 @@ private fun LoginScreen(
                     finally { busy = false }
                 }
             }
-        }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Signing in…" else "Sign in as Teacher") }
+        }, enabled = !busy, modifier = Modifier.fillMaxWidth(), elevation = ButtonDefaults.buttonElevation(defaultElevation = 7.dp, pressedElevation = 2.dp)) {
+            Icon(Icons.Default.LockOpen, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (busy) "Signing in…" else "Sign in as Teacher")
+        }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Checkbox(checked = rememberMe, onCheckedChange = { rememberMe = it; onRememberChanged(it); if (!it) authPrefs.edit().remove("saved_role").apply() })
             Text("Remember me — skip login next time")
@@ -1005,12 +1048,14 @@ private fun AppScaffold(
                     Surface(
                         modifier = Modifier.padding(top = 2.dp).size(46.dp),
                         shape = RoundedCornerShape(15.dp),
-                        color = Color.White.copy(alpha = 0.17f)
+                        color = Color.White.copy(alpha = 0.16f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.38f)),
+                        shadowElevation = 10.dp
                     ) {
                         IconButton(onClick = {
                             scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() }
                         }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = Color.White)
+                            Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = Color.White, modifier = Modifier.size(26.dp))
                         }
                     }
                     Spacer(Modifier.width(13.dp))

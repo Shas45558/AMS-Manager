@@ -20,8 +20,8 @@ private val MenuRose = Color(0xFFFFE8E5)
 private val Cloud = Color(0xFFF6FAF7)
 private val Slate = Color(0xFF53665C)
 private val SchoolRed = Color(0xFFB71C1C)
-private val DarkBackground = Color(0xFF031B15)
-private val DarkSurface = Color(0xFF062A20)
+private val DarkBackground = Color(0xFF061711)
+private val DarkSurface = Color(0xFF0A2A21)
 private val DarkGreen = Color(0xFF65F0AE)
 
 private val LightColors = lightColorScheme(
@@ -64,9 +64,9 @@ private val DarkColors = darkColorScheme(
     onBackground = Color(0xFFE5F2E8),
     surface = DarkSurface,
     onSurface = Color(0xFFE5F2E8),
-    surfaceVariant = Color(0xFF103C30),
+    surfaceVariant = Color(0xFF123D30),
     onSurfaceVariant = Color(0xFFB8CCBD),
-    outline = Color(0xFF167A59),
+    outline = Color(0xFF2D8B69),
     error = Color(0xFFFFB4AB)
 )
 
