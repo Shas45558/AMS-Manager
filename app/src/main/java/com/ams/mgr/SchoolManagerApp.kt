@@ -73,11 +73,15 @@ import androidx.navigation.NavType
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
-import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.GoogleAuthProvider
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.CustomCredential
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.tasks.await
 import com.ams.mgr.data.SchoolRepository
 import com.ams.mgr.data.Student
@@ -479,28 +483,57 @@ private fun LoginScreen(
         // A fresh authenticated session can now perform any queued offline changes.
         AutoSyncScheduler.enqueue(context)
     }
-    val signInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        try {
-            val account = GoogleSignIn.getSignedInAccountFromIntent(result.data).result
-            if (!account.email.equals("shas45558@gmail.com", ignoreCase = true)) {
-                GoogleSignIn.getClient(context, com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN).signOut()
-                error = "Admin access denied. Only the authorized administrator account can sign in."; busy = false
-            } else {
-                busy = true
-                scope.launch {
-                    try {
-                        val credential = GoogleAuthProvider.getCredential(account.idToken, null)
-                        FirebaseAuth.getInstance().signInWithCredential(credential).await()
-                        error = ""; finishLogin("Admin")
-                    } catch (e: Exception) { error = "Firebase admin sign-in failed: ${e.message ?: "Try again."}" }
-                    finally { busy = false }
-                }
-            }
-        } catch (e: Exception) { busy = false; error = "Google sign-in failed: ${e.message ?: "Try again."}" }
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val googleIdOption = remember {
+        GetGoogleIdOption.Builder()
+            .setServerClientId("891410663079-j2qnup0bc2a017dl4je985t6h4oobo0f.apps.googleusercontent.com")
+            .setFilterByAuthorizedAccounts(false)
+            .setAutoSelectEnabled(false)
+            .build()
     }
-    val signInClient = remember(context) {
-        GoogleSignIn.getClient(context, com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail().requestIdToken("891410663079-j2qnup0bc2a017dl4je985t6h4oobo0f.apps.googleusercontent.com").build())
+    val googleCredentialRequest = remember(googleIdOption) {
+        GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
+    }
+    suspend fun clearGoogleCredentialState() {
+        runCatching { credentialManager.clearCredentialState(androidx.credentials.ClearCredentialStateRequest()) }
+    }
+    fun startGoogleSignIn() {
+        error = ""
+        busy = true
+        scope.launch {
+            try {
+                val result = credentialManager.getCredential(context, googleCredentialRequest)
+                val credential = result.credential
+                if (credential !is CustomCredential || credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    error = "Google sign-in did not return a valid Google ID. Please try again."
+                    return@launch
+                }
+                val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data)
+                if (!googleIdToken.id.equals("shas45558@gmail.com", ignoreCase = true)) {
+                    clearGoogleCredentialState()
+                    error = "Admin access denied. Only the authorized administrator account can sign in."
+                    return@launch
+                }
+                if (googleIdToken.idToken.isBlank()) {
+                    error = "Google did not return an ID token. Please try again."
+                    return@launch
+                }
+                val tokenCredential = GoogleAuthProvider.getCredential(googleIdToken.idToken, null)
+                val firebaseUser = FirebaseAuth.getInstance().signInWithCredential(tokenCredential).await().user
+                if (!firebaseUser?.email.equals("shas45558@gmail.com", ignoreCase = true)) {
+                    FirebaseAuth.getInstance().signOut()
+                    clearGoogleCredentialState()
+                    error = "Admin access denied. Only the authorized administrator account can sign in."
+                } else {
+                    error = ""
+                    finishLogin("Admin")
+                }
+            } catch (e: Exception) {
+                error = if (e is androidx.credentials.exceptions.GetCredentialCancellationException) "Sign-in cancelled." else "Google sign-in failed: ${e.message ?: "Try again."}"
+            } finally {
+                busy = false
+            }
+        }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Image(
@@ -511,7 +544,7 @@ private fun LoginScreen(
         )
         Text("AMS Manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Sign in with Firebase", style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = { error = ""; busy = true; signInLauncher.launch(signInClient.signInIntent) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Admin — Google Sign-In") }
+        Button(onClick = { startGoogleSignIn() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Signing in…" else "Admin — Google Sign-In") }
         HorizontalDivider()
         Text("Teacher / Co-admin login", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(teacherId, { teacherId = it.trim(); error = "" }, label = { Text("User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -2106,8 +2139,10 @@ private fun FirebaseSyncScreen() {
         }
         OutlinedButton(enabled = !busy, onClick = {
             auth.signOut()
-            GoogleSignIn.getClient(context, com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN).signOut()
-            status = "Signed out. Sign in again to sync."
+            scope.launch {
+                runCatching { CredentialManager.create(context).clearCredentialState(androidx.credentials.ClearCredentialStateRequest()) }
+                status = "Signed out. Sign in again to sync."
+            }
         }, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
     }
 }

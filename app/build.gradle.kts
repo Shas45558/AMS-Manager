@@ -100,7 +100,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.2")
     // Make Room migration/database support types explicit for KSP on CI.
     implementation("androidx.sqlite:sqlite:2.4.0")
-    implementation("com.google.android.gms:play-services-auth:21.3.0")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
