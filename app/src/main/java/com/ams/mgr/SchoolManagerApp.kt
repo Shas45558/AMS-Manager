@@ -188,8 +188,8 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("promotion", "Student Promotion", Icons.Default.Upgrade),
             DrawerItem("ssc_students", "SSC Students", Icons.Default.School),
             DrawerItem("attendance", "Attendance", Icons.Default.CheckCircle),
-            DrawerItem("monthly_exam", "Monthly Exam", Icons.AutoMirrored.Filled.Assignment),
-            DrawerItem("exams", "Exams & Results", Icons.AutoMirrored.Filled.Assignment),
+            DrawerItem("monthly_exam", "Monthly Exam", Icons.Filled.Assignment),
+            DrawerItem("exams", "Exams & Results", Icons.Filled.Assignment),
             DrawerItem("reports", "Reports", Icons.Default.BarChart),
             DrawerItem("settings", "Sync", Icons.Default.Cloud)
         )
@@ -857,7 +857,7 @@ private fun AuthorizationScreen() {
                             onValueChange = {}, readOnly = true,
                             label = { Text("Assigned class") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = classMenuExpanded) },
-                            modifier = Modifier.menuAnchor(MenuAnchorType.Primary, enabled = true).fillMaxWidth()
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true).fillMaxWidth()
                         )
                         ExposedDropdownMenu(expanded = classMenuExpanded, onDismissRequest = { classMenuExpanded = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
                             (1..10).map { it.toString() }.forEach { classOption ->
@@ -1103,7 +1103,7 @@ private fun DashboardScreen(repository: SchoolRepository, teacherMode: Boolean, 
                         val whatsappIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/8801840224834"))
                         context.startActivity(whatsappIntent)
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
+                        Icon(Icons.Filled.Chat, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Chat on WhatsApp")
                     }
@@ -1619,7 +1619,7 @@ private fun DropdownField(label: String, value: String, options: List<String>, m
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.Primary, enabled = true)
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, shape = RoundedCornerShape(20.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) {
             options.forEach { option ->
@@ -2677,7 +2677,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.16f)) {
-                        Icon(Icons.AutoMirrored.Filled.Assignment, contentDescription = null, tint = Color.White, modifier = Modifier.padding(9.dp).size(24.dp))
+                        Icon(Icons.Filled.Assignment, contentDescription = null, tint = Color.White, modifier = Modifier.padding(9.dp).size(24.dp))
                     }
                     Column(Modifier.weight(1f)) {
                         Text("Exam & Results", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
@@ -3065,7 +3065,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
         val finalOptions = options.filterNot { it in termOptions }
         AlertDialog(
             onDismissRequest = { showExamType = false },
-            icon = { Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            icon = { Icon(Icons.Filled.EventNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Choose examination", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3084,7 +3084,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                             border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.Assignment, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Filled.Assignment, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(10.dp)); Text(option, modifier = Modifier.weight(1f), fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
                                 if (selected) Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
                             }
