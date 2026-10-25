@@ -10,8 +10,8 @@ import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import kotlin.math.sqrt
 
-/** Offline FaceNet inference. Put a compatible 160x160 RGB FaceNet model at assets/facenet.tflite. */
-class FaceNetEmbedder(context: Context, modelAsset: String = "facenet.tflite") : Closeable {
+/** Offline FaceNet inference. Put a compatible 160x160 RGB FaceNet model at assets/facenet_512.tflite. */
+class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.tflite") : Closeable {
     private val interpreter: Interpreter = Interpreter(loadAsset(context, modelAsset), Interpreter.Options().apply { setNumThreads(4) })
     private val outputSize: Int = interpreter.getOutputTensor(0).shape().last()
 
@@ -19,7 +19,7 @@ class FaceNetEmbedder(context: Context, modelAsset: String = "facenet.tflite") :
         require(interpreter.getInputTensor(0).shape().contentEquals(intArrayOf(1, 160, 160, 3))) {
             "Expected FaceNet input tensor [1,160,160,3]"
         }
-        require(outputSize == 128 || outputSize == 512) { "Expected 128- or 512-dimensional FaceNet output" }
+        require(outputSize == 512) { "Expected 512-dimensional FaceNet output, got $outputSize" }
     }
 
     /** Input must already be cropped/aligned to the face. */
