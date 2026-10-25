@@ -96,8 +96,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
     // Make Room migration/database support types explicit for KSP on CI.
     implementation("androidx.sqlite:sqlite:2.4.0")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
@@ -106,5 +106,5 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-functions-ktx")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
-    ksp("androidx.room:room-compiler:2.6.1")
+    ksp("androidx.room:room-compiler:2.7.2")
 }
