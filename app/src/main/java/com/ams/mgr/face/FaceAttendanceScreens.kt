@@ -148,6 +148,7 @@ fun FaceAttendanceScreen(
         }
     }
     var templates by remember { mutableStateOf<List<FaceTemplate>>(emptyList()) }
+    var templateStudents by remember { mutableStateOf<Map<Long, Student>>(emptyMap()) }
     val marked = remember { mutableStateListOf<Long>() }
     var lastResult by remember { mutableStateOf("Scanning…") }
     var lastScore by remember { mutableFloatStateOf(0f) }
@@ -160,7 +161,10 @@ fun FaceAttendanceScreen(
         // Match against all active registered faces, then enforce the selected class/section.
         // This prevents a valid face from being reported as unknown simply because the
         // class/section text has different capitalization or whitespace.
-        templates = activeStudents.mapNotNull { repository.getFaceTemplate(it.id) }
+        val snapshot = activeStudents.associateBy { it.id }
+        val loadedTemplates = activeStudents.mapNotNull { repository.getFaceTemplate(it.id) }
+        templates = loadedTemplates
+        templateStudents = snapshot
         students.forEach { if (repository.attendanceForDate(it.id, date)?.present == true && !marked.contains(it.id)) marked += it.id }
     }
 
@@ -176,9 +180,13 @@ fun FaceAttendanceScreen(
                     lastResult = "Face detected, but no registered student matched (best confidence below 55%)."
                     lastScore = 0f
                 } else {
-                    val student = activeStudents.firstOrNull { it.id == match.studentId }
+                    // Use the same student snapshot that was used to load the matched
+                    // template. The live roster Flow can refresh during camera scanning;
+                    // looking up against the newer list can otherwise produce a false
+                    // "student record is missing" even with a strong face match.
+                    val student = templateStudents[match.studentId] ?: repository.getStudent(match.studentId)
                     if (student == null) {
-                        lastResult = "Registered face found, but student record is missing"
+                        lastResult = "Face matched, but the student record is not available on this device. Sync students or re-register the face."
                         lastScore = match.similarity
                     } else {
                         val sameClass = student.className.trim().equals(className.trim(), ignoreCase = true)

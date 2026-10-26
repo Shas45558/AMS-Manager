@@ -32,3 +32,7 @@ Build could not be run in this environment: the project wrapper script reports t
 
 ## Firebase face enrollment sync
 Face enrollment stores only the numerical FaceNet embedding locally. The embedding is queued and synced to Firestore in `schools/ams-manager-b1434/faceTemplates/{studentId}` when online. Original face photos are not uploaded.
+
+
+## v7 matching fix
+The attendance matcher now keeps the student roster snapshot paired with the face templates loaded from that roster. This prevents a roster refresh during camera scanning from causing a valid high-confidence match to be reported as a missing student record.
