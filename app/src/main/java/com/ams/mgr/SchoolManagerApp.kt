@@ -56,6 +56,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -589,9 +590,16 @@ private fun LoginScreen(
             }
         }
     }
+    val darkTheme = isSystemInDarkTheme()
+    val loginBackground = if (darkTheme) Color(0xFF071B15) else Color.White
+    val loginText = if (darkTheme) Color(0xFFEAF7F1) else Color(0xFF14231D)
+    val loginMuted = if (darkTheme) Color(0xFFA9C0B6) else Color(0xFF52645C)
+    val loginCard = if (darkTheme) Color(0xFF0B211B) else Color(0xFFF7FAF8)
+    val loginBorder = if (darkTheme) Color(0xFF315A4B) else Color(0xFFD3E0DA)
+
     Column(
         Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF071B15), Color(0xFF0B3024), Color(0xFF061711))))
+            .background(loginBackground)
             .verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -599,8 +607,8 @@ private fun LoginScreen(
         Surface(
             modifier = Modifier.size(104.dp),
             shape = RoundedCornerShape(32.dp),
-            color = Color.White.copy(alpha = 0.10f),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.32f)),
+            color = loginCard,
+            border = BorderStroke(1.dp, loginBorder),
             shadowElevation = 16.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -612,8 +620,8 @@ private fun LoginScreen(
                 )
             }
         }
-        Text("AMS Manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Sign in with Firebase", style = MaterialTheme.typography.bodyMedium)
+        Text("AMS Manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = loginText)
+        Text("Sign in with Firebase", style = MaterialTheme.typography.bodyMedium, color = loginMuted)
         ElevatedButton(
             onClick = { startGoogleSignIn() }, enabled = !busy, modifier = Modifier.fillMaxWidth(),
             elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 8.dp, pressedElevation = 2.dp)
@@ -622,8 +630,8 @@ private fun LoginScreen(
             Spacer(Modifier.width(8.dp))
             Text(if (busy) "Signing in…" else "Admin — Google Sign-In")
         }
-        HorizontalDivider()
-        Text("Teacher / Co-admin login", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        HorizontalDivider(color = loginBorder)
+        Text("Teacher / Co-admin login", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = loginText)
         OutlinedTextField(teacherId, { teacherId = it.trim(); error = "" }, label = { Text("User ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, { password = it; error = "" }, label = { Text("Password") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Button(onClick = {
@@ -672,7 +680,7 @@ private fun LoginScreen(
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Checkbox(checked = rememberMe, onCheckedChange = { rememberMe = it; onRememberChanged(it); if (!it) authPrefs.edit().remove("saved_role").apply() })
-            Text("Remember me — skip login next time")
+            Text("Remember me — skip login next time", color = loginText)
         }
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
