@@ -462,8 +462,10 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         teacherMode = activeRole == "Teacher",
                         assignedClass = authPrefs.getString("assigned_class", "") ?: "",
                         assignedSection = authPrefs.getString("assigned_section", "") ?: "",
+                        assignedSections = (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it.isNotBlank() },
                         onBack = { navController.popBackStack() },
                         onRegisterFace = { navController.navigate("face-enroll/$id") },
+                        onDeleteFace = { },
                         onEdit = { navController.navigate("student/$id/edit") },
                         onDeleted = { navController.popBackStack() }
                     )
@@ -1485,50 +1487,50 @@ private fun StudentPromotionScreen(repository: SchoolRepository, teacherMode: Bo
 private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, assignedSections: List<String> = listOf(assignedSection).filter { it.isNotBlank() }, onAdd: (String) -> Unit, onOpen: (Long) -> Unit) {
     var query by remember { mutableStateOf("") }
     var classFilter by rememberSaveable { mutableStateOf("All") }
-    var sectionFilter by rememberSaveable { mutableStateOf(assignedSection.ifBlank { assignedSections.firstOrNull().orEmpty() }) }
-    val allowedSections = (assignedSections.ifEmpty { listOf(assignedSection) }).map { it.trim() }.filter { it in listOf("A", "B") }.distinct().sorted()
+    var sectionFilter by rememberSaveable { mutableStateOf("All") }
     var genderFilter by rememberSaveable { mutableStateOf("All") }
     var religionFilter by rememberSaveable { mutableStateOf("All") }
     val allStudents by repository.students(query).collectAsState(initial = emptyList())
     val activeAll by repository.students("").collectAsState(initial = emptyList())
     val classOptions = listOf("All") + activeAll.map { it.className }.distinct().sortedWith(compareBy { it.toIntOrNull() ?: 999 })
     val sectionOptions = listOf("All") + activeAll.filter { classFilter == "All" || it.className == classFilter }.map { it.section }.distinct().sorted()
+    val allowedSections = (assignedSections.ifEmpty { listOf(assignedSection) }).map { it.trim() }.filter { it.isNotBlank() }.distinct()
     val students = allStudents.filter { student ->
-        (!teacherMode || (assignedClass.isNotBlank() && student.className == assignedClass && student.section in allowedSections && student.section == sectionFilter)) &&
-        (teacherMode || classFilter == "All" || student.className == classFilter) &&
-        (teacherMode || sectionFilter == "All" || student.section == sectionFilter) &&
+        (classFilter == "All" || student.className == classFilter) &&
+        (sectionFilter == "All" || student.section == sectionFilter) &&
         (genderFilter == "All" || student.gender.equals(genderFilter, true)) &&
         (religionFilter == "All" || student.religion.equals(religionFilter, true))
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), label = { Text("Search students") }, leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }, singleLine = true)
-            if (!teacherMode) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f)) { DropdownField("Class", classFilter, classOptions) { classFilter = it; sectionFilter = "All" } }
-                    Box(Modifier.weight(1f)) { DropdownField("Section", sectionFilter, sectionOptions) { sectionFilter = it } }
-                }
-            } else {
-                Text("Assigned class: $assignedClass", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
-                if (allowedSections.size > 1) {
-                    DropdownField("Assigned Section", sectionFilter, allowedSections) { sectionFilter = it }
-                } else if (allowedSections.isNotEmpty()) {
-                    Text("Assigned section: ${allowedSections.first()}", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
-                }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) { DropdownField("Class", classFilter, classOptions) { classFilter = it; sectionFilter = "All" } }
+                Box(Modifier.weight(1f)) { DropdownField("Section", sectionFilter, sectionOptions) { sectionFilter = it } }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { DropdownField("Gender", genderFilter, listOf("All", "Boy", "Girl")) { genderFilter = it } }
                 Box(Modifier.weight(1f)) { DropdownField("Religion", religionFilter, listOf("All", "Muslim", "Hindu", "Christian", "Buddhist", "Other")) { religionFilter = it } }
             }
+            if (teacherMode) {
+                Text(
+                    if (allowedSections.isEmpty() || assignedClass.isBlank()) "View mode: all students are visible. No class is assigned to this teacher."
+                    else "All students are visible. Edit, delete and face management are available only for ${assignedClass} • ${allowedSections.joinToString(", ") }.",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (students.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (teacherMode && (assignedClass.isBlank() || allowedSections.isEmpty())) "No class/section assigned. Contact the administrator." else if (query.isBlank()) "No students match these filters." else "No students found.") }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (query.isBlank()) "No students match these filters." else "No students found.") }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(students, key = { it.id }) { student -> StudentCard(student) { onOpen(student.id) } }
                 }
             }
         }
-        if (!teacherMode || (assignedClass.isNotBlank() && allowedSections.isNotEmpty())) FloatingActionButton(onClick = { onAdd(if (teacherMode) sectionFilter else "") }, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) { Icon(Icons.Default.Add, contentDescription = "Add student") }
+        val canAdd = !teacherMode || (assignedClass.isNotBlank() && allowedSections.isNotEmpty())
+        if (canAdd) FloatingActionButton(onClick = { onAdd(if (teacherMode) allowedSections.firstOrNull().orEmpty() else "") }, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) { Icon(Icons.Default.Add, contentDescription = "Add student") }
     }
 }
 
@@ -2155,8 +2157,10 @@ private fun StudentDetailsScreen(
     teacherMode: Boolean,
     assignedClass: String,
     assignedSection: String,
+    assignedSections: List<String> = listOf(assignedSection),
     onBack: () -> Unit,
     onRegisterFace: () -> Unit,
+    onDeleteFace: () -> Unit,
     onEdit: () -> Unit,
     onDeleted: () -> Unit
 ) {
@@ -2166,10 +2170,16 @@ private fun StudentDetailsScreen(
     val attendance by repository.attendance(studentId).collectAsState(initial = emptyList())
     var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
 
-    LaunchedEffect(studentId, teacherMode, assignedClass, assignedSection) {
+    var faceRegistered by remember { mutableStateOf(false) }
+    val allowedSections = (assignedSections.ifEmpty { listOf(assignedSection) }).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    LaunchedEffect(studentId) {
         val found = repository.getStudent(studentId)
-        student = if (teacherMode && (found?.className != assignedClass || found?.section != assignedSection)) null else found
+        student = found
+        faceRegistered = found != null && repository.getFaceTemplate(studentId) != null
     }
+    val canManage = student?.let { s ->
+        !teacherMode || (assignedClass.isNotBlank() && s.className == assignedClass && s.section in allowedSections)
+    } == true
 
     student?.let { s ->
         LazyColumn(
@@ -2202,31 +2212,62 @@ private fun StudentDetailsScreen(
                     }
                 }
                 if (s.address.isNotBlank()) Text("Address: ${s.address}")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Edit, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Edit")
-                    }
-                    OutlinedButton(
-                        onClick = { showDelete = true },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                if (teacherMode && !canManage) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Delete")
+                        Text("View only • This student is outside your assigned class/section.", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                OutlinedButton(onClick = onRegisterFace, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Face, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Register / Replace Face")
+                if (canManage) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Edit, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Edit")
+                        }
+                        OutlinedButton(
+                            onClick = { showDelete = true },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Delete")
+                        }
+                    }
+                    OutlinedButton(onClick = onRegisterFace, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Face, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (faceRegistered) "Register / Replace Face" else "Register Face")
+                    }
+                    OutlinedButton(
+                        enabled = faceRegistered,
+                        onClick = {
+                            scope.launch {
+                                repository.deleteFaceTemplate(studentId)
+                                faceRegistered = false
+                                onDeleteFace()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Delete Face")
+                    }
                 }
             }
             item {
                 HorizontalDivider()
                 Text("Attendance", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 OutlinedTextField(value = selectedDate, onValueChange = { selectedDate = it }, label = { Text("Date (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { scope.launch { repository.markAttendance(studentId, selectedDate, true) } }, modifier = Modifier.weight(1f)) { Text("Present") }
-                    OutlinedButton(onClick = { scope.launch { repository.markAttendance(studentId, selectedDate, false) } }, modifier = Modifier.weight(1f)) { Text("Absent") }
+                if (canManage || !teacherMode) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { scope.launch { repository.markAttendance(studentId, selectedDate, true) } }, modifier = Modifier.weight(1f)) { Text("Present") }
+                        OutlinedButton(onClick = { scope.launch { repository.markAttendance(studentId, selectedDate, false) } }, modifier = Modifier.weight(1f)) { Text("Absent") }
+                    }
+                } else {
+                    Text("View only: attendance can only be edited for your assigned students.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             item { Text("Attendance History", style = MaterialTheme.typography.titleMedium) }
