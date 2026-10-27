@@ -17,8 +17,8 @@ android {
         versionCode = 30
         versionName = "1.56"
         // The production phones targeted by this app are ARM Android devices.
-        // Excluding x86/x86_64 native libraries substantially reduces the release APK.
-        ndk { abiFilters += listOf("armeabi-v7a") }
+        // Keep ARM32 + ARM64 support; exclude x86/x86_64 native libraries to reduce APK size.
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
 
     // Keep bundled face/model/report files outside a folder named "assets" in the source ZIP.
