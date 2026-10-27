@@ -355,6 +355,7 @@ fun FaceCheckScreen(repository: SchoolRepository, onDone: () -> Unit) {
     var lastResult by remember { mutableStateOf("Look at a student's face to check identity.") }
     var lastScore by remember { mutableFloatStateOf(0f) }
     var busy by remember { mutableStateOf(false) }
+    var lastInferenceAt by remember { mutableLongStateOf(0L) }
     var lastMatchedId by remember { mutableStateOf<Long?>(null) }
     val embedder = remember { FaceNetEmbedder(context) }
     DisposableEffect(Unit) { onDispose { embedder.close() } }
@@ -366,7 +367,9 @@ fun FaceCheckScreen(repository: SchoolRepository, onDone: () -> Unit) {
     }
 
     fun handleFace(bitmap: android.graphics.Bitmap) {
-        if (busy) { bitmap.recycle(); return }
+        val now = System.currentTimeMillis()
+        if (busy || now - lastInferenceAt < 700L) { bitmap.recycle(); return }
+        lastInferenceAt = now
         busy = true
         scope.launch {
             try {

@@ -135,17 +135,18 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
         }
 
         // The server roster is fetched after queued changes have been applied. It is
-        // authoritative for all records this account is allowed to see.
-        val remoteStudentDocs = if (isAdmin) school.collection("students").get().await().documents else assignedSections.flatMap { sectionValue ->
-            school.collection("students").whereEqualTo("className", assignedClass).whereEqualTo("section", sectionValue).get().await().documents
-        }.distinctBy { it.id }
+        // authoritative for all records this account is allowed to see. Enabled teachers
+        // are intentionally allowed to READ the full student roster so Student Details and
+        // Face Check can identify any student. Firestore rules still restrict teacher writes
+        // to their assigned class/section.
+        val remoteStudentDocs = school.collection("students").get().await().documents
         val remoteIds = remoteStudentDocs.mapNotNull { d -> (d.get("id") as? Number)?.toLong() ?: d.id.toLongOrNull() }.toSet()
         val localStudentsBeforeMerge = db.studentDao().getAllOnce()
         val pendingIds = db.pendingStudentUpsertDao().getAllOnce().map { it.studentId }.toSet()
-        val eligibleLocal = if (isAdmin) localStudentsBeforeMerge else localStudentsBeforeMerge.filter { it.className == assignedClass && it.section in assignedSections }
+        val eligibleLocal = localStudentsBeforeMerge
         eligibleLocal.filter { it.id !in remoteIds && it.id !in pendingIds && it.id !in localPending }.forEach { stale ->
-            // A student can be absent from this class because of promotion or a
-            // section change. Remove only the stale roster row; never erase history.
+            // A student can be absent from the cloud roster because it was deleted.
+            // Remove only the stale roster row; never erase attendance/exam history here.
             db.studentDao().deleteById(stale.id)
         }
         remoteStudentDocs.forEach { d ->
@@ -153,14 +154,16 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             val id = m.long("id") ?: d.id.toLongOrNull() ?: return@forEach
             db.studentDao().upsert(Student(id, m.str("studentName"), m.str("studentId"), m.str("className"), m.str("section"), m.str("gender"), m.str("religion"), m.str("fatherName"), m.str("address"), m.str("mobileNumber"), m.str("academicYear"), m.str("activeStatus").ifBlank { "active" }, m.str("sscYear")))
         }
-        val students = if (isAdmin) db.studentDao().getAllOnce() else db.studentDao().getAllOnce().filter { it.className == assignedClass && it.section in assignedSections }
-        val assignedIds = students.map { it.id }.toSet()
+        // Keep the full local roster for read-only Student Details / Face Check.
+        // Only assignedIds are used for teacher write operations below.
+        val students = db.studentDao().getAllOnce()
+        val assignedIds = students.filter { it.className == assignedClass && it.section in assignedSections }.map { it.id }.toSet()
         val studentById = students.associateBy { it.id }
 
         // Biometric enrollment sync: only the numerical face embedding is stored, never
-        // the original face photo. Admins sync all enrolled students; teachers sync only
-        // students in their assigned class/section.
-        val localFaces = db.faceTemplateDao().observeAll().first().filter { it.studentId in assignedIds }
+        // the original face photo. Admins and enabled teachers may READ all registered
+        // embeddings for Face Check; teachers may UPLOAD/replace only assigned students.
+        val localFaces = db.faceTemplateDao().observeAll().first().filter { it.studentId in assignedIds || isAdmin }
         localFaces.filter { it.syncedAt < it.updatedAt }.forEach { face ->
             val student = studentById[face.studentId] ?: return@forEach
             val encoded = Base64.encodeToString(face.embedding, Base64.NO_WRAP)
@@ -176,11 +179,13 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
             db.faceTemplateDao().markSynced(face.studentId, face.updatedAt)
         }
 
-        val remoteFaces = if (isAdmin) school.collection("faceTemplates").get().await().documents else queryByAssignment("faceTemplates", assignedClass, assignedSections)
+        // Read all registered face templates. This is required because Face Check is a
+        // school-wide identity lookup, not an attendance operation. Firestore rules allow
+        // enabled teachers to read these documents but still restrict writes.
+        val remoteFaces = school.collection("faceTemplates").get().await().documents
         remoteFaces.forEach { d ->
             val m = d.data ?: return@forEach
             val studentId = m.long("studentId") ?: d.id.toLongOrNull() ?: return@forEach
-            if (studentId !in assignedIds) return@forEach
             val encoded = m.str("embedding")
             if (encoded.isBlank()) return@forEach
             val bytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull() ?: return@forEach

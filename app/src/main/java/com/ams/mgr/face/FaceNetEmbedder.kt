@@ -11,6 +11,8 @@ import kotlin.math.sqrt
 /** Offline FaceNet inference. Put a compatible 160x160 RGB FaceNet model at assets/facenet_512.bin. */
 class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") : Closeable {
     private val interpreter: Interpreter = Interpreter(loadAsset(context, modelAsset), Interpreter.Options().apply { setNumThreads(4) })
+    private val nativeLock = Any()
+    @Volatile private var closed = false
     private val outputSize: Int = interpreter.getOutputTensor(0).shape().last()
 
     init {
@@ -22,6 +24,13 @@ class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") 
 
     /** Input must already be cropped/aligned to the face. */
     fun embed(face: Bitmap): FloatArray {
+        synchronized(nativeLock) {
+            check(!closed) { "FaceNet embedder is closed" }
+            return embedLocked(face)
+        }
+    }
+
+    private fun embedLocked(face: Bitmap): FloatArray {
         val resized = Bitmap.createScaledBitmap(face, 160, 160, true)
         val input = ByteBuffer.allocateDirect(1 * 160 * 160 * 3 * 4).order(ByteOrder.nativeOrder())
         val pixels = IntArray(160 * 160)
@@ -39,7 +48,13 @@ class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") 
         return normalize(output[0])
     }
 
-    override fun close() = interpreter.close()
+    override fun close() {
+        synchronized(nativeLock) {
+            if (closed) return
+            closed = true
+            interpreter.close()
+        }
+    }
 
     private fun normalize(vector: FloatArray): FloatArray {
         val norm = sqrt(vector.sumOf { (it * it).toDouble() }).toFloat().coerceAtLeast(1e-12f)

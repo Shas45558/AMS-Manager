@@ -46,23 +46,31 @@ class FaceCameraAnalyzer(
             .addOnSuccessListener { faces ->
                 val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                 if (face != null) {
-                    runCatching {
-                        val bitmap = imageProxyToBitmap(imageProxy, rotation)
-                        val cropped = cropFace(bitmap, face.boundingBox)
-                        if (cropped != null) onFace(cropped)
-                        if (bitmap !== cropped) bitmap.recycle()
-                    }.onFailure { throwable -> onError(throwable as? Exception ?: Exception(throwable)) }
+                    if (!closed.get()) {
+                        runCatching {
+                            val bitmap = imageProxyToBitmap(imageProxy, rotation)
+                            val cropped = cropFace(bitmap, face.boundingBox)
+                            if (cropped != null && !closed.get()) onFace(cropped)
+                            else cropped?.recycle()
+                            if (bitmap !== cropped) bitmap.recycle()
+                        }.onFailure { throwable ->
+                            if (!closed.get()) onError(throwable as? Exception ?: Exception(throwable))
+                        }
+                    }
                 }
             }
             .addOnFailureListener { onError(it as? Exception ?: Exception(it)) }
             .addOnCompleteListener {
                 busy.set(false)
                 imageProxy.close()
+                if (closed.get()) detector.close()
             }
     }
 
     fun close() {
-        if (closed.compareAndSet(false, true)) {
+        // Do not close ML Kit while a detector task is still using the native object.
+        // The completion callback performs the final close after busy becomes false.
+        if (closed.compareAndSet(false, true) && !busy.get()) {
             detector.close()
         }
     }
