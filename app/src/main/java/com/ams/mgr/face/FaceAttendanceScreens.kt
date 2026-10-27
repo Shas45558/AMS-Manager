@@ -46,6 +46,7 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
     val scope = rememberCoroutineScope()
     var student by remember { mutableStateOf<Student?>(null) }
     var registered by remember { mutableStateOf(false) }
+    var registrationStarted by remember { mutableStateOf(false) }
     var samples by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf("Look at the camera and keep your face inside the frame.") }
     var busy by remember { mutableStateOf(false) }
@@ -61,7 +62,7 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
 
     fun handleFace(bitmap: android.graphics.Bitmap) {
         val now = System.currentTimeMillis()
-        if (busy || now - lastSampleAt < 450L || embeddings.size >= 5) { bitmap.recycle(); return }
+        if (!registrationStarted || busy || now - lastSampleAt < 850L || embeddings.size >= 8) { bitmap.recycle(); return }
         lastSampleAt = now
         busy = true
         scope.launch {
@@ -69,8 +70,8 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
                 val embedding = withContext(Dispatchers.Default) { embedder.embed(bitmap) }
                 embeddings += embedding
                 samples = embeddings.size
-                status = if (samples < 5) "Good. Hold still… sample $samples/5" else "Saving face template…"
-                if (samples >= 5) {
+                status = if (samples < 8) "Good. Hold still… sample $samples/8" else "Saving face template…"
+                if (samples >= 8) {
                     val average = averageNormalized(embeddings)
                     repository.saveFaceTemplate(FaceTemplate(studentId = studentId, embedding = FaceMatcher.encode(average)))
                     registered = true
@@ -96,6 +97,31 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
                     Icon(Icons.Default.CheckCircle, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("A face template is already registered. Start a new capture to replace it.")
+                }
+            }
+        }
+        if (!registrationStarted) {
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Ready to register?", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("When you press Ready, the camera will collect 8 clear face samples over several seconds. Keep the face centered and steady.")
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            registrationStarted = true
+                            samples = 0
+                            embeddings.clear()
+                            lastSampleAt = 0L
+                            status = "Starting… keep your face centered and steady."
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Ready — Start Registration")
+                    }
                 }
             }
         }
@@ -177,9 +203,9 @@ fun FaceAttendanceScreen(
         scope.launch {
             try {
                 val embedding = withContext(Dispatchers.Default) { embedder.embed(bitmap) }
-                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.55f)
+                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.80f)
                 if (match == null) {
-                    lastResult = "Face detected, but no registered student matched (best confidence below 55%)."
+                    lastResult = "Face detected, but no registered student matched (best confidence below 80%)."
                     lastScore = 0f
                 } else {
                     // Use the same student snapshot that was used to load the matched
@@ -248,7 +274,7 @@ private fun FaceCameraPreview(
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it }
     val executor = remember { Executors.newSingleThreadExecutor() }
     val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
-    var useFrontCamera by remember { mutableStateOf(true) }
+    var useFrontCamera by remember { mutableStateOf(false) }
     var cameraReady by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
 
@@ -374,7 +400,7 @@ fun FaceCheckScreen(repository: SchoolRepository, onDone: () -> Unit) {
         scope.launch {
             try {
                 val embedding = withContext(Dispatchers.Default) { embedder.embed(bitmap) }
-                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.55f)
+                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.80f)
                 if (match == null) {
                     lastResult = "Face detected, but no registered student matched."
                     lastScore = 0f
