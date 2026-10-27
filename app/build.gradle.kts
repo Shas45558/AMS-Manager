@@ -14,12 +14,16 @@ android {
         applicationId = "com.ams.mgr"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "1.55"
+        versionCode = 30
+        versionName = "1.56"
         // The production phones targeted by this app are ARM Android devices.
         // Excluding x86/x86_64 native libraries substantially reduces the release APK.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        ndk { abiFilters += listOf("armeabi-v7a") }
     }
+
+    // Keep bundled face/model/report files outside a folder named "assets" in the source ZIP.
+    // Android still packages them as application assets at build time.
+    sourceSets["main"].assets.srcDir("src/main/app_files")
 
     // Release is optimized to reduce the final APK size.
     buildTypes {

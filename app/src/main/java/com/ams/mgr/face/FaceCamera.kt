@@ -22,6 +22,7 @@ class FaceCameraAnalyzer(
     private val onError: (Exception) -> Unit = {}
 ) : ImageAnalysis.Analyzer {
     private val busy = AtomicBoolean(false)
+    private val closed = AtomicBoolean(false)
     private val detector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
@@ -31,7 +32,7 @@ class FaceCameraAnalyzer(
     )
 
     override fun analyze(imageProxy: ImageProxy) {
-        if (!busy.compareAndSet(false, true)) {
+        if (closed.get() || !busy.compareAndSet(false, true)) {
             imageProxy.close()
             return
         }
@@ -60,7 +61,11 @@ class FaceCameraAnalyzer(
             }
     }
 
-    fun close() { detector.close() }
+    fun close() {
+        if (closed.compareAndSet(false, true)) {
+            detector.close()
+        }
+    }
 
     private fun cropFace(bitmap: Bitmap, box: Rect): Bitmap? {
         // FaceNet works best when enrollment and attendance use a consistent square crop.

@@ -89,6 +89,7 @@ import com.ams.mgr.data.MonthlyExam
 import com.ams.mgr.data.AppDatabase
 import com.ams.mgr.data.ExamMark
 import com.ams.mgr.face.FaceAttendanceScreen
+import com.ams.mgr.face.FaceCheckScreen
 import com.ams.mgr.face.FaceEnrollmentScreen
 import com.ams.mgr.data.FirebaseSchoolSync
 import com.ams.mgr.data.AutoSyncScheduler
@@ -194,6 +195,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("promotion", "Student Promotion", Icons.Default.Upgrade),
             DrawerItem("ssc_students", "SSC Students", Icons.Default.School),
             DrawerItem("attendance", "Attendance", Icons.Default.CheckCircle),
+            DrawerItem("face-check", "Face Check", Icons.Default.Face),
             DrawerItem("monthly_exam", "Monthly Exam", Icons.Filled.Assignment),
             DrawerItem("exams", "Exams & Results", Icons.Filled.Assignment),
             DrawerItem("reports", "Reports", Icons.Default.BarChart),
@@ -284,7 +286,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "monthly_exam", "exams", "reports", "settings") } else items
+                        val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "face-check", "monthly_exam", "exams", "reports", "settings") } else items
                         items(visibleItems, key = { it.route }) { item ->
                             NavigationDrawerItem(
                                 label = { Text(item.label) },
@@ -424,6 +426,11 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                 val dt = backStack.arguments?.getString("date") ?: LocalDate.now().toString()
                 AppScaffold("Face Attendance", drawerState, scope) {
                     FaceAttendanceScreen(repository, cls, sec, dt) { navController.popBackStack() }
+                }
+            }
+            composable("face-check") {
+                AppScaffold("Face Check", drawerState, scope) {
+                    FaceCheckScreen(repository) { navController.popBackStack() }
                 }
             }
             composable("monthly_exam") {

@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -234,23 +236,43 @@ fun FaceAttendanceScreen(
 }
 
 @Composable
-private fun FaceCameraPreview(onFace: (android.graphics.Bitmap) -> Unit, modifier: Modifier = Modifier) {
+private fun FaceCameraPreview(
+    onFace: (android.graphics.Bitmap) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    var permission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it }
     val executor = remember { Executors.newSingleThreadExecutor() }
     val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    var useFrontCamera by remember { mutableStateOf(true) }
+    var cameraReady by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { if (!permission) permissionLauncher.launch(Manifest.permission.CAMERA) }
 
-    DisposableEffect(permission, lifecycleOwner, previewView) {
+    DisposableEffect(Unit) {
+        onDispose { executor.shutdownNow() }
+    }
+
+    DisposableEffect(permission, lifecycleOwner, previewView, useFrontCamera) {
         if (!permission) return@DisposableEffect onDispose { }
+
         val providerFuture = ProcessCameraProvider.getInstance(context)
         val analyzer = FaceCameraAnalyzer(onFace = onFace)
+        var disposed = false
         val listener = Runnable {
+            if (disposed) {
+                analyzer.close()
+                return@Runnable
+            }
             runCatching {
                 val provider = providerFuture.get()
+                val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+                if (!provider.hasCamera(selector)) error("Selected camera is not available on this device")
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -258,26 +280,149 @@ private fun FaceCameraPreview(onFace: (android.graphics.Bitmap) -> Unit, modifie
                     .build()
                 analysis.setAnalyzer(executor, analyzer)
                 provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
+                provider.bindToLifecycle(lifecycleOwner, selector, preview, analysis)
+                cameraReady = true
+                cameraError = null
+            }.onFailure {
+                cameraReady = false
+                cameraError = it.message ?: "Could not open camera"
             }
         }
         providerFuture.addListener(listener, ContextCompat.getMainExecutor(context))
+
         onDispose {
-            runCatching { providerFuture.get().unbindAll() }
+            disposed = true
             analyzer.close()
+            // Never block Compose disposal with Future.get(). CameraX will release
+            // lifecycle-bound use cases; if the provider is already ready, unbind it.
+            if (providerFuture.isDone) {
+                runCatching { providerFuture.get().unbindAll() }
+            }
         }
     }
 
-    if (permission) {
-        AndroidView(factory = { previewView }, modifier = modifier)
-    } else {
-        Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(modifier.background(Color.Black)) {
+        if (permission) {
+            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+            IconButton(
+                onClick = { useFrontCamera = !useFrontCamera },
+                enabled = cameraReady,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), shape = androidx.compose.foundation.shape.CircleShape)
+            ) {
+                Icon(Icons.Default.Cameraswitch, contentDescription = "Switch front/back camera", tint = Color.White)
+            }
+            if (cameraError != null) {
+                Card(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.72f))
+                ) {
+                    Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.height(8.dp))
+                        Text(cameraError!!, color = Color.White)
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = { useFrontCamera = !useFrontCamera }) { Text("Try other camera") }
+                    }
+                }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White)
                 Text("Camera permission is required.", color = Color.White)
                 Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Allow camera") }
             }
         }
+    }
+}
+
+@Composable
+fun FaceCheckScreen(repository: SchoolRepository, onDone: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val allStudents by repository.students("").collectAsState(initial = emptyList())
+    val activeStudents = remember(allStudents) {
+        allStudents.filter { it.activeStatus.trim().equals("active", ignoreCase = true) }
+    }
+    var templates by remember { mutableStateOf<List<FaceTemplate>>(emptyList()) }
+    var templateStudents by remember { mutableStateOf<Map<Long, Student>>(emptyMap()) }
+    var lastResult by remember { mutableStateOf("Look at a student's face to check identity.") }
+    var lastScore by remember { mutableFloatStateOf(0f) }
+    var busy by remember { mutableStateOf(false) }
+    var lastMatchedId by remember { mutableStateOf<Long?>(null) }
+    val embedder = remember { FaceNetEmbedder(context) }
+    DisposableEffect(Unit) { onDispose { embedder.close() } }
+
+    LaunchedEffect(activeStudents) {
+        val snapshot = activeStudents.associateBy { it.id }
+        templates = activeStudents.mapNotNull { repository.getFaceTemplate(it.id) }
+        templateStudents = snapshot
+    }
+
+    fun handleFace(bitmap: android.graphics.Bitmap) {
+        if (busy) { bitmap.recycle(); return }
+        busy = true
+        scope.launch {
+            try {
+                val embedding = withContext(Dispatchers.Default) { embedder.embed(bitmap) }
+                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.55f)
+                if (match == null) {
+                    lastResult = "Face detected, but no registered student matched."
+                    lastScore = 0f
+                    lastMatchedId = null
+                } else {
+                    val student = templateStudents[match.studentId] ?: repository.getStudent(match.studentId)
+                    lastScore = match.similarity
+                    if (student == null) {
+                        lastResult = "Face matched, but the student record is missing on this device."
+                        lastMatchedId = null
+                    } else {
+                        lastResult = "${student.studentName} • Class ${student.className} • Section ${student.section}"
+                        lastMatchedId = student.id
+                    }
+                }
+            } catch (e: Exception) {
+                lastResult = "Face check error: ${e.message ?: "unknown error"}"
+                lastScore = 0f
+                lastMatchedId = null
+            } finally {
+                busy = false
+                bitmap.recycle()
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Face Check", style = MaterialTheme.typography.headlineSmall)
+            Text("Recognize a registered student without marking attendance.")
+        }
+        FaceCameraPreview(onFace = ::handleFace, modifier = Modifier.fillMaxWidth().weight(1f))
+        Card(
+            Modifier.fillMaxWidth().padding(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (lastMatchedId != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (lastMatchedId != null) Icons.Default.CheckCircle else Icons.Default.Face,
+                        contentDescription = null
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(lastResult, style = MaterialTheme.typography.titleMedium)
+                }
+                if (lastScore > 0f) Text("Similarity ${(lastScore * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth().padding(12.dp)) { Text("Finish") }
     }
 }
 
