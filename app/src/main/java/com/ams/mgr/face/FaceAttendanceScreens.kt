@@ -11,6 +11,8 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -125,8 +127,23 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
                 }
             }
         }
-        FaceCameraPreview(onFace = ::handleFace, modifier = Modifier.fillMaxWidth().weight(1f))
-        Text(status, modifier = Modifier.padding(16.dp))
+        if (registrationStarted) {
+            FaceCameraPreview(onFace = ::handleFace, modifier = Modifier.fillMaxWidth().weight(1f))
+        } else {
+            Box(
+                Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                    Icon(Icons.Default.Face, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(52.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Camera starts after Ready", style = MaterialTheme.typography.titleMedium)
+                    Text("Keep your face centered and well-lit.", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+        Text(status, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDone, modifier = Modifier.weight(1f)) { Text("Back") }
             if (registered) {

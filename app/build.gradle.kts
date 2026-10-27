@@ -16,9 +16,8 @@ android {
         targetSdk = 35
         versionCode = 31
         versionName = "1.57"
-        // The production phones targeted by this app are ARM Android devices.
-        // Keep ARM32 + ARM64 support; exclude x86/x86_64 native libraries to reduce APK size.
-        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
+        // ARM64 only; omit ARM32 and x86 native libraries to reduce APK size.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     // Keep bundled face/model/report files outside a folder named "assets" in the source ZIP.
