@@ -67,7 +67,8 @@ service cloud.firestore {
     }
     match /teacherCredentials/{document=**} { allow read, write: if false; }
     match /schools/{schoolId}/students/{studentId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      allow read: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || isEnabledTeacher());
+      allow delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
       allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && request.resource.data.section == resource.data.section && sameOrNextClass(resource.data.className, request.resource.data.className)));
     }
@@ -85,7 +86,8 @@ service cloud.firestore {
     // Teacher queries must constrain className + section, because Firestore rules
     // are not filters and cannot authorize a broad studentId-only query.
     match /schools/{schoolId}/faceTemplates/{studentId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      allow read: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || isEnabledTeacher());
+      allow delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
       allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
