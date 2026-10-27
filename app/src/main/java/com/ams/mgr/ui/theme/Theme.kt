@@ -3,88 +3,105 @@ package com.ams.mgr.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 
-// Amtoli Model School logo palette: deep green, leaf green, red accents, and white.
-private val SchoolGreen = Color(0xFF007A4D)
-private val DeepGreen = Color(0xFF004D32)
-private val LeafGreen = Color(0xFF00A36C)
-private val PaleGreen = Color(0xFFDDF5E8)
-private val MenuMint = Color(0xFFE7F7EE)
-private val MenuRose = Color(0xFFFFE8E5)
-private val Cloud = Color(0xFFF6FAF7)
-private val Slate = Color(0xFF53665C)
-private val SchoolRed = Color(0xFFB71C1C)
-private val DarkBackground = Color(0xFF061711)
-private val DarkSurface = Color(0xFF0A2A21)
-private val DarkGreen = Color(0xFF65F0AE)
-
-private val LightColors = lightColorScheme(
-    primary = SchoolGreen,
-    onPrimary = Color.White,
-    primaryContainer = PaleGreen,
-    onPrimaryContainer = DeepGreen,
-    secondary = LeafGreen,
-    onSecondary = Color.White,
-    secondaryContainer = MenuMint,
-    onSecondaryContainer = Color(0xFF123D29),
-    tertiary = SchoolRed,
-    onTertiary = Color.White,
-    tertiaryContainer = MenuRose,
-    onTertiaryContainer = Color(0xFF650909),
-    background = Cloud,
-    onBackground = Color(0xFF172B20),
-    surface = Color.White,
-    onSurface = Color(0xFF172B20),
-    surfaceVariant = MenuMint,
-    onSurfaceVariant = Slate,
-    outline = Color(0xFFB7C9BC),
-    error = SchoolRed
-)
+// Premium AMS palette: deep forest background, emerald primary, warm gold accent.
+private val Emerald = Color(0xFF20C997)
+private val EmeraldBright = Color(0xFF38E0A7)
+private val EmeraldDeep = Color(0xFF087F5B)
+private val Forest = Color(0xFF061713)
+private val ForestSurface = Color(0xFF0B211B)
+private val ForestSurface2 = Color(0xFF102A22)
+private val Mint = Color(0xFFD6F8E8)
+private val Gold = Color(0xFFFFC857)
+private val GoldSoft = Color(0xFFFFE6A6)
+private val Ink = Color(0xFFEAF7F1)
+private val Muted = Color(0xFFA9C0B6)
+private val Outline = Color(0xFF315A4B)
+private val Error = Color(0xFFFFB4AB)
 
 private val DarkColors = darkColorScheme(
-    primary = DarkGreen,
-    onPrimary = Color(0xFF003824),
-    primaryContainer = Color(0xFF07583D),
-    onPrimaryContainer = Color(0xFFBDF4D1),
-    secondary = Color(0xFF8DDBAE),
-    onSecondary = Color(0xFF123D29),
-    secondaryContainer = Color(0xFF0B4032),
-    onSecondaryContainer = Color(0xFFD1F4DD),
-    tertiary = Color(0xFFFFB4AB),
-    onTertiary = Color(0xFF690005),
-    tertiaryContainer = Color(0xFF93000A),
-    onTertiaryContainer = Color(0xFFFFDAD6),
-    background = DarkBackground,
-    onBackground = Color(0xFFE5F2E8),
-    surface = DarkSurface,
-    onSurface = Color(0xFFE5F2E8),
-    surfaceVariant = Color(0xFF123D30),
-    onSurfaceVariant = Color(0xFFB8CCBD),
-    outline = Color(0xFF2D8B69),
-    error = Color(0xFFFFB4AB)
+    primary = EmeraldBright,
+    onPrimary = Color(0xFF003A2A),
+    primaryContainer = Color(0xFF075B43),
+    onPrimaryContainer = Mint,
+    secondary = Gold,
+    onSecondary = Color(0xFF3B2A00),
+    secondaryContainer = Color(0xFF5A4300),
+    onSecondaryContainer = GoldSoft,
+    tertiary = Color(0xFF9ED7FF),
+    onTertiary = Color(0xFF00344F),
+    tertiaryContainer = Color(0xFF004D70),
+    onTertiaryContainer = Color(0xFFC9E8FF),
+    background = Forest,
+    onBackground = Ink,
+    surface = ForestSurface,
+    onSurface = Ink,
+    surfaceVariant = ForestSurface2,
+    onSurfaceVariant = Muted,
+    outline = Outline,
+    outlineVariant = Color(0xFF1E3D32),
+    error = Error
+)
+
+private val LightColors = lightColorScheme(
+    primary = Color(0xFF087F5B),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFBFF3DC),
+    onPrimaryContainer = Color(0xFF002117),
+    secondary = Color(0xFF8A6500),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFFFE7A8),
+    onSecondaryContainer = Color(0xFF2B2100),
+    tertiary = Color(0xFF00628A),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFC5E8FF),
+    onTertiaryContainer = Color(0xFF001E2D),
+    background = Color(0xFFF5FBF8),
+    onBackground = Color(0xFF14231D),
+    surface = Color.White,
+    onSurface = Color(0xFF14231D),
+    surfaceVariant = Color(0xFFE3F1EB),
+    onSurfaceVariant = Color(0xFF52645C),
+    outline = Color(0xFF8BA39A),
+    outlineVariant = Color(0xFFC7D8D1),
+    error = Color(0xFFBA1A1A)
 )
 
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(12.dp),
-    small = RoundedCornerShape(18.dp),
-    medium = RoundedCornerShape(22.dp),
-    large = RoundedCornerShape(28.dp),
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(26.dp),
     extraLarge = RoundedCornerShape(32.dp)
 )
 
+private val AppTypography = Typography().run {
+    copy(
+        headlineLarge = headlineLarge.copy(fontWeight = FontWeight.ExtraBold),
+        headlineMedium = headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+        headlineSmall = headlineSmall.copy(fontWeight = FontWeight.Bold),
+        titleLarge = titleLarge.copy(fontWeight = FontWeight.Bold),
+        titleMedium = titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        labelLarge = labelLarge.copy(fontWeight = FontWeight.SemiBold)
+    )
+}
+
 @Composable
 fun SchoolManagerTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = DarkColors,
+        colorScheme = if (darkTheme) DarkColors else LightColors,
+        typography = AppTypography,
         shapes = AppShapes,
         content = content
     )

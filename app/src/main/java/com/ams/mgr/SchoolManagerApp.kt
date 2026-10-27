@@ -1059,70 +1059,104 @@ private fun AppScaffold(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            // Shared welcome banner for every drawer page. statusBarsPadding keeps
-            // the content safely below the phone status bar/notch.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF03251B),
-                                Color(0xFF006B45),
-                                Color(0xFF00A36C),
-                                Color(0xFF063B2C)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp,
+                tonalElevation = 4.dp,
+                shape = RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF05261C),
+                                    Color(0xFF087F5B),
+                                    Color(0xFF0D5F49)
+                                )
                             )
                         )
-                    )
-                    .statusBarsPadding()
-                    .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
-                    Surface(
-                        modifier = Modifier.padding(top = 2.dp).size(46.dp),
-                        shape = RoundedCornerShape(15.dp),
-                        color = Color.White.copy(alpha = 0.16f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.38f)),
-                        shadowElevation = 10.dp
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = {
-                            scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() }
-                        }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = Color.White, modifier = Modifier.size(26.dp))
+                        Surface(
+                            modifier = Modifier.size(48.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.White.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f))
+                        ) {
+                            IconButton(onClick = {
+                                scope.launch {
+                                    if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                                }
+                            }) {
+                                Icon(
+                                    Icons.Default.Menu,
+                                    contentDescription = "Open menu",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(25.dp)
+                                )
+                            }
                         }
-                    }
-                    Spacer(Modifier.width(13.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            "Welcome to",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color.White.copy(alpha = 0.82f),
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "Amtoli Model School",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White.copy(alpha = 0.94f),
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "AMTOLI MODEL SCHOOL",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.72f),
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp
+                            )
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color.White.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF57F2B0))
+                                )
+                                Text(
+                                    "LIVE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) { content() }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            content()
+        }
     }
 }
 
