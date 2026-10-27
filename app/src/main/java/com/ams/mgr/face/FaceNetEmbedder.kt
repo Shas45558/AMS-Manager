@@ -8,7 +8,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.sqrt
 
-/** Offline FaceNet inference. Put a compatible 160x160 RGB FaceNet model at assets/facenet_512.bin. */
+/** Offline GhostFaceNet/ArcFace inference. Model input is 112x112 RGB and output is a 512-dimensional embedding. */
 class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") : Closeable {
     private val interpreter: Interpreter = Interpreter(loadAsset(context, modelAsset), Interpreter.Options().apply { setNumThreads(4) })
     private val nativeLock = Any()
@@ -16,8 +16,8 @@ class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") 
     private val outputSize: Int = interpreter.getOutputTensor(0).shape().last()
 
     init {
-        require(interpreter.getInputTensor(0).shape().contentEquals(intArrayOf(1, 160, 160, 3))) {
-            "Expected FaceNet input tensor [1,160,160,3]"
+        require(interpreter.getInputTensor(0).shape().contentEquals(intArrayOf(1, 112, 112, 3))) {
+            "Expected GhostFaceNet input tensor [1,112,112,3]"
         }
         require(outputSize == 512) { "Expected 512-dimensional FaceNet output, got $outputSize" }
     }
@@ -31,10 +31,10 @@ class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") 
     }
 
     private fun embedLocked(face: Bitmap): FloatArray {
-        val resized = Bitmap.createScaledBitmap(face, 160, 160, true)
-        val input = ByteBuffer.allocateDirect(1 * 160 * 160 * 3 * 4).order(ByteOrder.nativeOrder())
-        val pixels = IntArray(160 * 160)
-        resized.getPixels(pixels, 0, 160, 0, 0, 160, 160)
+        val resized = Bitmap.createScaledBitmap(face, 112, 112, true)
+        val input = ByteBuffer.allocateDirect(1 * 112 * 112 * 3 * 4).order(ByteOrder.nativeOrder())
+        val pixels = IntArray(112 * 112)
+        resized.getPixels(pixels, 0, 112, 0, 0, 112, 112)
         for (p in pixels) {
             // FaceNet models commonly expect RGB values scaled to [-1,1]. Verify against the model's source.
             input.putFloat((((p shr 16) and 0xff) / 127.5f) - 1f)
