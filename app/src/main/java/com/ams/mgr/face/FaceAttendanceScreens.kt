@@ -11,6 +11,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
@@ -350,6 +351,21 @@ private fun FaceCameraPreview(
     Box(modifier.background(Color.Black)) {
         if (permission) {
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+            // Visible guide: keep the face centered inside this rounded frame.
+            Box(
+                Modifier.align(Alignment.Center)
+                    .fillMaxWidth(0.72f)
+                    .fillMaxHeight(0.58f)
+                    .border(3.dp, Color(0xFF55E6A5), RoundedCornerShape(28.dp))
+            )
+            Text(
+                "Keep face inside frame",
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 18.dp)
+                    .background(Color.Black.copy(alpha = 0.50f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
+            )
             IconButton(
                 onClick = { useFrontCamera = !useFrontCamera },
                 enabled = cameraReady,

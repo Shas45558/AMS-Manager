@@ -44,7 +44,18 @@ class FaceCameraAnalyzer(
         val input = InputImage.fromMediaImage(mediaImage, rotation)
         detector.process(input)
             .addOnSuccessListener { faces ->
-                val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                val imageWidth = if (rotation == 90 || rotation == 270) imageProxy.height else imageProxy.width
+                val imageHeight = if (rotation == 90 || rotation == 270) imageProxy.width else imageProxy.height
+                // The on-screen guide occupies the central 72% x 58% region.
+                // Process only faces whose center is inside that guide.
+                val face = faces
+                    .filter { candidate ->
+                        val box = candidate.boundingBox
+                        val cx = box.centerX().toFloat() / imageWidth.coerceAtLeast(1)
+                        val cy = box.centerY().toFloat() / imageHeight.coerceAtLeast(1)
+                        cx in 0.14f..0.86f && cy in 0.21f..0.79f
+                    }
+                    .maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                 if (face != null) {
                     if (!closed.get()) {
                         runCatching {
