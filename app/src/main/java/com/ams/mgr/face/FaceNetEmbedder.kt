@@ -8,67 +8,53 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.sqrt
 
-/** Offline GhostFaceNet/ArcFace inference. Model input is 112x112 RGB and output is a 512-dimensional embedding. */
-class FaceNetEmbedder(context: Context, modelAsset: String = "facenet_512.bin") : Closeable {
-    private val interpreter: Interpreter = Interpreter(loadAsset(context, modelAsset), Interpreter.Options().apply { setNumThreads(4) })
+/** MobileFaceNet TFLite inference. Model has two NCHW image inputs and returns two 128-D embeddings. */
+class FaceNetEmbedder(context: Context, modelAsset: String = "mobile_facenet.tflite") : Closeable {
+    private val interpreter = Interpreter(loadAsset(context, modelAsset), Interpreter.Options().apply { setNumThreads(4) })
     private val nativeLock = Any()
     @Volatile private var closed = false
-    private val outputSize: Int = interpreter.getOutputTensor(0).shape().last()
 
     init {
-        require(interpreter.getInputTensor(0).shape().contentEquals(intArrayOf(1, 112, 112, 3))) {
-            "Expected GhostFaceNet input tensor [1,112,112,3]"
-        }
-        require(outputSize == 512) { "Expected 512-dimensional FaceNet output, got $outputSize" }
+        require(interpreter.inputTensorCount == 2) { "MobileFaceNet model expects two image inputs" }
+        require(interpreter.getInputTensor(0).shape().contentEquals(intArrayOf(1, 3, 112, 112)))
+        require(interpreter.getInputTensor(1).shape().contentEquals(intArrayOf(1, 3, 112, 112)))
+        require(interpreter.getOutputTensor(0).shape().contentEquals(intArrayOf(2, 128)))
     }
 
-    /** Input must already be cropped/aligned to the face. */
-    fun embed(face: Bitmap): FloatArray {
-        synchronized(nativeLock) {
-            check(!closed) { "FaceNet embedder is closed" }
-            return embedLocked(face)
-        }
+    fun embed(face: Bitmap): FloatArray = synchronized(nativeLock) {
+        check(!closed) { "Embedder is closed" }
+        val input = imageTensor(face)
+        val output = Array(2) { FloatArray(128) }
+        interpreter.runForMultipleInputsOutputs(arrayOf(input, input), mapOf(0 to output))
+        normalize(output[0])
     }
 
-    private fun embedLocked(face: Bitmap): FloatArray {
+    private fun imageTensor(face: Bitmap): ByteBuffer {
         val resized = Bitmap.createScaledBitmap(face, 112, 112, true)
-        val input = ByteBuffer.allocateDirect(1 * 112 * 112 * 3 * 4).order(ByteOrder.nativeOrder())
         val pixels = IntArray(112 * 112)
         resized.getPixels(pixels, 0, 112, 0, 0, 112, 112)
-        for (p in pixels) {
-            // FaceNet models commonly expect RGB values scaled to [-1,1]. Verify against the model's source.
-            input.putFloat((((p shr 16) and 0xff) / 127.5f) - 1f)
-            input.putFloat((((p shr 8) and 0xff) / 127.5f) - 1f)
-            input.putFloat(((p and 0xff) / 127.5f) - 1f)
+        val buffer = ByteBuffer.allocateDirect(1 * 3 * 112 * 112 * 4).order(ByteOrder.nativeOrder())
+        // Model metadata specifies RGB float values in [0,1], NCHW layout.
+        for (channel in 0..2) for (p in pixels) {
+            val value = when (channel) { 0 -> (p shr 16) and 0xff; 1 -> (p shr 8) and 0xff; else -> p and 0xff }
+            buffer.putFloat(value / 255f)
         }
-        input.rewind()
-        val output = Array(1) { FloatArray(outputSize) }
-        interpreter.run(input, output)
+        buffer.rewind()
         if (resized !== face) resized.recycle()
-        return normalize(output[0])
+        return buffer
     }
 
-    override fun close() {
-        synchronized(nativeLock) {
-            if (closed) return
-            closed = true
-            interpreter.close()
-        }
+    private fun normalize(v: FloatArray): FloatArray {
+        val norm = sqrt(v.sumOf { (it * it).toDouble() }).toFloat().coerceAtLeast(1e-12f)
+        return FloatArray(v.size) { v[it] / norm }
     }
 
-    private fun normalize(vector: FloatArray): FloatArray {
-        val norm = sqrt(vector.sumOf { (it * it).toDouble() }).toFloat().coerceAtLeast(1e-12f)
-        return FloatArray(vector.size) { vector[it] / norm }
-    }
+    override fun close() = synchronized(nativeLock) { if (!closed) { closed = true; interpreter.close() } }
 
     companion object {
         private fun loadAsset(context: Context, name: String): ByteBuffer {
-            context.assets.open(name).use { input ->
-                val bytes = input.readBytes()
-                return ByteBuffer.allocateDirect(bytes.size)
-                    .order(ByteOrder.nativeOrder())
-                    .apply { put(bytes); rewind() }
-            }
+            val bytes = context.assets.open(name).use { it.readBytes() }
+            return ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder()).apply { put(bytes); rewind() }
         }
     }
 }
