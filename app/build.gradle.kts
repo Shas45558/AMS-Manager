@@ -99,8 +99,7 @@ dependencies {
     // Offline face pipeline: bundled ML Kit detector + TensorFlow Lite inference.
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    // Required for Flex/Select TF Ops emitted by the GhostFaceNet converter.
-    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1")
+    // Standard TensorFlow Lite runtime only; Flex/Select TF Ops intentionally excluded.
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")

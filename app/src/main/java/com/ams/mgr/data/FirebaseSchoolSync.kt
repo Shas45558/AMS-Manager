@@ -195,8 +195,8 @@ class FirebaseSchoolSync(private val db: AppDatabase) {
                 db.faceTemplateDao().upsert(FaceTemplate(
                     studentId = studentId,
                     embedding = bytes,
-                    embeddingDimensions = (m["embeddingDimensions"] as? Number)?.toInt() ?: 512,
-                    modelVersion = m.str("modelVersion").ifBlank { "facenet512-v1" },
+                    embeddingDimensions = (m["embeddingDimensions"] as? Number)?.toInt() ?: 128,
+                    modelVersion = m.str("modelVersion").ifBlank { "mobilefacenet128-v1" },
                     updatedAt = updatedAt,
                     syncedAt = updatedAt
                 ))

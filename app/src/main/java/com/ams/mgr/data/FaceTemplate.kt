@@ -12,8 +12,8 @@ import androidx.room.PrimaryKey
 data class FaceTemplate(
     @PrimaryKey val studentId: Long,
     val embedding: ByteArray,
-    val embeddingDimensions: Int = 512,
-    val modelVersion: String = "facenet512-v1",
+    val embeddingDimensions: Int = 128,
+    val modelVersion: String = "mobilefacenet128-v1",
     val updatedAt: Long = System.currentTimeMillis(),
     val syncedAt: Long = 0L
 )
