@@ -220,10 +220,13 @@ fun FaceAttendanceScreen(
         scope.launch {
             try {
                 val embedding = withContext(Dispatchers.Default) { embedder.embed(bitmap) }
-                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.80f)
+                val match = FaceMatcher.bestMatch(embedding, templates)
                 if (match == null) {
-                    lastResult = "Face detected, but no registered student matched (best confidence below 80%)."
+                    lastResult = "Face detected, but no usable face templates are loaded. Sync/register faces first."
                     lastScore = 0f
+                } else if (match.similarity < 0.80f) {
+                    lastScore = match.similarity
+                    lastResult = "Face detected, no match accepted. Best candidate: ${(match.similarity * 100).toInt()}% (required 80%)."
                 } else {
                     // Use the same student snapshot that was used to load the matched
                     // template. The live roster Flow can refresh during camera scanning;
@@ -417,11 +420,15 @@ fun FaceCheckScreen(repository: SchoolRepository, onDone: () -> Unit) {
         scope.launch {
             try {
                 val embedding = withContext(Dispatchers.Default) { embedder.embed(bitmap) }
-                val match = FaceMatcher.bestMatch(embedding, templates, minimumSimilarity = 0.80f)
+                val match = FaceMatcher.bestMatch(embedding, templates)
                 if (match == null) {
-                    lastResult = "Face detected, but no registered student matched."
+                    lastResult = "Face detected, but no usable face templates are loaded. Sync/register faces first."
                     lastScore = 0f
                     lastMatchedId = null
+                } else if (match.similarity < 0.80f) {
+                    lastResult = "No match accepted. Best candidate: ${(match.similarity * 100).toInt()}% (required 80%)."
+                    lastScore = match.similarity
+                    lastMatchedId = match.studentId
                 } else {
                     val student = templateStudents[match.studentId] ?: repository.getStudent(match.studentId)
                     lastScore = match.similarity

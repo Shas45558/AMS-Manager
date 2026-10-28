@@ -15,7 +15,9 @@ object FaceMatcher {
             val score = cosine(query, candidate)
             if (best == null || score > best.similarity) best = Match(template.studentId, score)
         }
-        return best?.takeIf { it.similarity >= minimumSimilarity }
+        // Return the strongest candidate even below threshold so UI can show diagnostics.
+        // Callers must explicitly enforce minimumSimilarity before accepting a match.
+        return best
     }
 
     fun encode(vector: FloatArray): ByteArray {
