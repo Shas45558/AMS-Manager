@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,9 +52,9 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
     val scope = rememberCoroutineScope()
     var student by remember { mutableStateOf<Student?>(null) }
     var registered by remember { mutableStateOf(false) }
-    var registrationStarted by remember { mutableStateOf(false) }
+    var registrationStarted by remember { mutableStateOf(true) }
     var samples by remember { mutableStateOf(0) }
-    var status by remember { mutableStateOf("Look at the camera and keep your face inside the frame.") }
+    var status by remember { mutableStateOf("Camera opened. Keep your face centered; registration starts automatically.") }
     var busy by remember { mutableStateOf(false) }
     val embeddings = remember { mutableListOf<FloatArray>() }
     var lastSampleAt by remember { mutableLongStateOf(0L) }
@@ -139,7 +142,7 @@ fun FaceEnrollmentScreen(repository: SchoolRepository, studentId: Long, onDone: 
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                     Icon(Icons.Default.Face, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(52.dp))
                     Spacer(Modifier.height(8.dp))
-                    Text("Camera starts after Ready", style = MaterialTheme.typography.titleMedium)
+                    Text("Camera starts automatically", style = MaterialTheme.typography.titleMedium)
                     Text("Keep your face centered and well-lit.", style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -297,6 +300,8 @@ private fun FaceCameraPreview(
     val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
     var useFrontCamera by remember { mutableStateOf(false) }
     var cameraReady by remember { mutableStateOf(false) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var torchEnabled by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { if (!permission) permissionLauncher.launch(Manifest.permission.CAMERA) }
@@ -327,7 +332,8 @@ private fun FaceCameraPreview(
                     .build()
                 analysis.setAnalyzer(executor, analyzer)
                 provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, selector, preview, analysis)
+                boundCamera = provider.bindToLifecycle(lifecycleOwner, selector, preview, analysis)
+                torchEnabled = false
                 cameraReady = true
                 cameraError = null
             }.onFailure {
@@ -342,6 +348,8 @@ private fun FaceCameraPreview(
             analyzer.close()
             // Never block Compose disposal with Future.get(). CameraX will release
             // lifecycle-bound use cases; if the provider is already ready, unbind it.
+            boundCamera = null
+            torchEnabled = false
             if (providerFuture.isDone) {
                 runCatching { providerFuture.get().unbindAll() }
             }
@@ -375,6 +383,23 @@ private fun FaceCameraPreview(
                     .background(Color.Black.copy(alpha = 0.55f), shape = androidx.compose.foundation.shape.CircleShape)
             ) {
                 Icon(Icons.Default.Cameraswitch, contentDescription = "Switch front/back camera", tint = Color.White)
+            }
+            if (!useFrontCamera && cameraReady && boundCamera?.cameraInfo?.hasFlashUnit() == true) {
+                IconButton(
+                    onClick = {
+                        val next = !torchEnabled
+                        runCatching { boundCamera?.cameraControl?.enableTorch(next) }
+                            .onSuccess { torchEnabled = next }
+                    },
+                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), shape = androidx.compose.foundation.shape.CircleShape)
+                ) {
+                    Icon(
+                        if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                        contentDescription = if (torchEnabled) "Turn flashlight off" else "Turn flashlight on",
+                        tint = if (torchEnabled) Color(0xFFFFD54F) else Color.White
+                    )
+                }
             }
             if (cameraError != null) {
                 Card(
