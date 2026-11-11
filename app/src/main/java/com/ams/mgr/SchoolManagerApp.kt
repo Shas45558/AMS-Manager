@@ -89,9 +89,6 @@ import com.ams.mgr.data.Student
 import com.ams.mgr.data.MonthlyExam
 import com.ams.mgr.data.AppDatabase
 import com.ams.mgr.data.ExamMark
-import com.ams.mgr.face.FaceAttendanceScreen
-import com.ams.mgr.face.FaceCheckScreen
-import com.ams.mgr.face.FaceEnrollmentScreen
 import com.ams.mgr.data.FirebaseSchoolSync
 import com.ams.mgr.data.AutoSyncScheduler
 import java.time.LocalDate
@@ -196,7 +193,6 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("promotion", "Student Promotion", Icons.Default.Upgrade),
             DrawerItem("ssc_students", "SSC Students", Icons.Default.School),
             DrawerItem("attendance", "Attendance", Icons.Default.CheckCircle),
-            DrawerItem("face-check", "Face Check", Icons.Default.Face),
             DrawerItem("monthly_exam", "Monthly Exam", Icons.Filled.Assignment),
             DrawerItem("exams", "Exams & Results", Icons.Filled.Assignment),
             DrawerItem("reports", "Reports", Icons.Default.BarChart),
@@ -287,7 +283,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "face-check", "monthly_exam", "exams", "reports", "settings") } else items
+                        val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "monthly_exam", "exams", "reports", "settings") } else items
                         items(visibleItems, key = { it.route }) { item ->
                             NavigationDrawerItem(
                                 label = { Text(item.label) },
@@ -402,36 +398,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             }
             composable("attendance") {
                 AppScaffold("Attendance", drawerState, scope) {
-                    AttendanceScreen(repository, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "", onFaceAttendance = { cls, sec, dt -> navController.navigate("face-attendance/${android.net.Uri.encode(cls)}/${android.net.Uri.encode(sec)}/${android.net.Uri.encode(dt)}") })
-                }
-            }
-            composable(
-                "face-enroll/{id}",
-                arguments = listOf(navArgument("id") { type = NavType.LongType })
-            ) { backStack ->
-                val id = backStack.arguments?.getLong("id") ?: return@composable
-                AppScaffold("Register Face", drawerState, scope) {
-                    FaceEnrollmentScreen(repository, id) { navController.popBackStack() }
-                }
-            }
-            composable(
-                "face-attendance/{className}/{section}/{date}",
-                arguments = listOf(
-                    navArgument("className") { type = NavType.StringType },
-                    navArgument("section") { type = NavType.StringType },
-                    navArgument("date") { type = NavType.StringType }
-                )
-            ) { backStack ->
-                val cls = backStack.arguments?.getString("className") ?: ""
-                val sec = backStack.arguments?.getString("section") ?: ""
-                val dt = backStack.arguments?.getString("date") ?: LocalDate.now().toString()
-                AppScaffold("Face Attendance", drawerState, scope) {
-                    FaceAttendanceScreen(repository, cls, sec, dt) { navController.popBackStack() }
-                }
-            }
-            composable("face-check") {
-                AppScaffold("Face Check", drawerState, scope) {
-                    FaceCheckScreen(repository) { navController.popBackStack() }
+                    AttendanceScreen(repository, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "")
                 }
             }
             composable("monthly_exam") {
@@ -447,7 +414,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             composable("student/add") {
                 AppScaffold("Add Student", drawerState, scope) {
                     StudentFormScreen(repository, null, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "", assignedSections = (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it.isNotBlank() }) { savedId ->
-                    if (savedId < 0L) navController.navigate("face-enroll/${-savedId}") else navController.popBackStack()
+                    navController.popBackStack()
                 }
                 }
             }
@@ -465,8 +432,6 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                         assignedSection = authPrefs.getString("assigned_section", "") ?: "",
                         assignedSections = (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it.isNotBlank() },
                         onBack = { navController.popBackStack() },
-                        onRegisterFace = { navController.navigate("face-enroll/$id") },
-                        onDeleteFace = { },
                         onEdit = { navController.navigate("student/$id/edit") },
                         onDeleted = { navController.popBackStack() }
                     )
@@ -1523,7 +1488,7 @@ private fun StudentsScreen(repository: SchoolRepository, teacherMode: Boolean, a
             if (teacherMode) {
                 Text(
                     if (allowedSections.isEmpty() || assignedClass.isBlank()) "View mode: all students are visible. No class is assigned to this teacher."
-                    else "All students are visible. Edit, delete and face management are available only for ${assignedClass} • ${allowedSections.joinToString(", ") }.",
+                    else "All students are visible. Edit and delete are available only for ${assignedClass} • ${allowedSections.joinToString(", ") }.",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1658,7 +1623,6 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
     var address by remember { mutableStateOf("") }
     var mobile by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    var registerFaceAfterSave by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(studentId) {
         if (studentId != null) {
@@ -1727,7 +1691,7 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
                     .putString("gender", gender)
                     .putString("religion", religion)
                     .apply()
-                onSaved(if (existing == null && registerFaceAfterSave) -savedId else savedId)
+                onSaved(savedId)
             } catch (_: IllegalArgumentException) {
                 error = "This class, section and roll already exists. Student was not added."
             }
@@ -1754,19 +1718,11 @@ private fun StudentFormScreen(repository: SchoolRepository, studentId: Long?, te
             FormField("Father's Name", father) { father = it }
             FormField("Address", address, minLines = 3) { address = it }
             FormField("Mobile Number", mobile) { mobile = it }
-            if (existing == null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = registerFaceAfterSave, onCheckedChange = { registerFaceAfterSave = it })
-                    Column {
-                        Text("Register face now (optional)", fontWeight = FontWeight.SemiBold)
-                        Text("You can also register it later from Student Details.", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+
 
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp)) }
             Button(onClick = ::save, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                Text(if (existing == null) if (registerFaceAfterSave) "Add Student & Register Face" else "Add Student" else "Save Changes")
+                Text(if (existing == null) "Add Student" else "Save Changes")
             }
         }
     }
@@ -1843,7 +1799,7 @@ private fun countAttendanceOnWorkingDays(records: List<com.ams.mgr.data.Attendan
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String, onFaceAttendance: (String, String, String) -> Unit) {
+private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean, assignedClass: String, assignedSection: String) {
     val context = LocalContext.current
     val closurePrefs = remember { context.getSharedPreferences("school_closures", Context.MODE_PRIVATE) }
     var closures by remember { mutableStateOf(loadSchoolClosures(closurePrefs)) }
@@ -1948,31 +1904,6 @@ private fun AttendanceScreen(repository: SchoolRepository, teacherMode: Boolean,
                         TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Today") }
                     }
                     Spacer(Modifier.height(8.dp))
-                    val faceClass = if (teacherMode) assignedClass else selectedClass
-                    val faceSection = if (teacherMode) assignedSection else selectedSection
-                    val canUseFaceAttendance = selectedAttendanceDate != null && !attendanceClosed &&
-                        faceClass.isNotBlank() && faceClass != "All" &&
-                        faceSection.isNotBlank() && faceSection != "All"
-                    Button(
-                        onClick = {
-                            if (canUseFaceAttendance) onFaceAttendance(faceClass, faceSection, date)
-                        },
-                        enabled = canUseFaceAttendance,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(vertical = 14.dp)
-                    ) {
-                        Icon(Icons.Default.Face, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Face ID Attendance", fontWeight = FontWeight.Bold)
-                    }
-                    if (!canUseFaceAttendance && !attendanceClosed) {
-                        Text(
-                            if (teacherMode) "Face ID Attendance is available for your assigned class and section."
-                            else "Select a Class and Section above to use Face ID Attendance.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                     if (attendanceClosed) {
                         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                             Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2167,8 +2098,6 @@ private fun StudentDetailsScreen(
     assignedSection: String,
     assignedSections: List<String> = listOf(assignedSection),
     onBack: () -> Unit,
-    onRegisterFace: () -> Unit,
-    onDeleteFace: () -> Unit,
     onEdit: () -> Unit,
     onDeleted: () -> Unit
 ) {
@@ -2178,12 +2107,10 @@ private fun StudentDetailsScreen(
     val attendance by repository.attendance(studentId).collectAsState(initial = emptyList())
     var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
 
-    var faceRegistered by remember { mutableStateOf(false) }
     val allowedSections = (assignedSections.ifEmpty { listOf(assignedSection) }).map { it.trim() }.filter { it.isNotBlank() }.distinct()
     LaunchedEffect(studentId) {
         val found = repository.getStudent(studentId)
         student = found
-        faceRegistered = found != null && repository.getFaceTemplate(studentId) != null
     }
     val canManage = student?.let { s ->
         !teacherMode || (assignedClass.isNotBlank() && s.className == assignedClass && s.section in allowedSections)
@@ -2242,27 +2169,7 @@ private fun StudentDetailsScreen(
                             Icon(Icons.Default.Delete, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("Delete")
                         }
                     }
-                    OutlinedButton(onClick = onRegisterFace, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Face, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (faceRegistered) "Register / Replace Face" else "Register Face")
-                    }
-                    OutlinedButton(
-                        enabled = faceRegistered,
-                        onClick = {
-                            scope.launch {
-                                repository.deleteFaceTemplate(studentId)
-                                faceRegistered = false
-                                onDeleteFace()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Delete Face")
-                    }
+
                 }
             }
             item {

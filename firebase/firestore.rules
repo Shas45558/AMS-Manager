@@ -16,6 +16,19 @@ service cloud.firestore {
         && get(coAdminPath()).data.enabled == true;
     }
     function hasAdminAccess() { return isAdmin() || isEnabledCoAdmin(); }
+    function isStudent() {
+      return signedIn()
+        && request.auth.token.role == 'student'
+        && request.auth.token.schoolId == 'ams-manager-b1434'
+        && request.auth.token.studentId is int
+        && request.auth.token.studentDocId is string;
+    }
+    function isOwnStudentDocument(studentDocId) {
+      return isStudent() && request.auth.token.studentDocId == studentDocId;
+    }
+    function isOwnStudentRecord() {
+      return isStudent() && resource.data.studentId == request.auth.token.studentId;
+    }
     function teacherPath() { return /databases/$(database)/documents/teacherAccounts/$(request.auth.uid); }
     function isEnabledTeacher() {
       return signedIn() && exists(teacherPath())
@@ -67,7 +80,9 @@ service cloud.firestore {
     }
     match /teacherCredentials/{document=**} { allow read, write: if false; }
     match /schools/{schoolId}/students/{studentId} {
-      allow read: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || isEnabledTeacher());
+      // PUBLIC PORTAL ACCESS: anyone can read student profiles in this school.
+      // This is intentionally passwordless and exposes profile fields to the public.
+      allow read: if schoolId == 'ams-manager-b1434';
       allow delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
       allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && request.resource.data.section == resource.data.section && sameOrNextClass(resource.data.className, request.resource.data.className)));
@@ -92,17 +107,23 @@ service cloud.firestore {
       allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/attendance/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      // PUBLIC PORTAL ACCESS: attendance records are publicly readable.
+      allow read: if schoolId == 'ams-manager-b1434';
+      allow delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
       allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/monthlyExams/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      // PUBLIC PORTAL ACCESS: monthly evaluation records are publicly readable.
+      allow read: if schoolId == 'ams-manager-b1434';
+      allow delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
       allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }
     match /schools/{schoolId}/examMarks/{recordId} {
-      allow read, delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
+      // PUBLIC PORTAL ACCESS: examination marks are publicly readable.
+      allow read: if schoolId == 'ams-manager-b1434';
+      allow delete: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(resource.data.className, resource.data.section));
       allow create: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || assigned(request.resource.data.className, request.resource.data.section));
       allow update: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || (assigned(resource.data.className, resource.data.section) && assigned(request.resource.data.className, request.resource.data.section) && request.resource.data.studentId == resource.data.studentId));
     }

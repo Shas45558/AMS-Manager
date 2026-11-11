@@ -20,7 +20,7 @@ android {
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 
-    // Keep bundled face/model/report files outside a folder named "assets" in the source ZIP.
+    // Keep bundled report files outside a folder named "assets" in the source ZIP.
     // Android still packages them as application assets at build time.
     sourceSets["main"].assets.srcDir("src/main/app_files")
 
@@ -95,16 +95,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.3")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
-
-    // Offline face pipeline: bundled ML Kit detector + TensorFlow Lite inference.
-    implementation("com.google.mlkit:face-detection:16.1.7")
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    // Standard TensorFlow Lite runtime only; Flex/Select TF Ops intentionally excluded.
-    implementation("androidx.camera:camera-camera2:1.4.1")
-    implementation("androidx.camera:camera-lifecycle:1.4.1")
-    implementation("androidx.camera:camera-view:1.4.1")
-    // CameraX ProcessCameraProvider exposes Guava ListenableFuture on the public API.
-    implementation("com.google.guava:guava:33.3.1-android")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
