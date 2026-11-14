@@ -89,6 +89,16 @@ service cloud.firestore {
     }
     // School closures are managed by the verified admin and readable by enabled teachers
     // so attendance and individual report cards use the same shared calendar.
+    // Published result snapshots are readable by the student portal; only admins can publish or change them.
+    match /schools/{schoolId}/publishedResults/{resultId} {
+      allow read: if schoolId == 'ams-manager-b1434';
+      allow create, update, delete: if schoolId == 'ams-manager-b1434' && hasAdminAccess();
+    }
+    // Grade boundaries are shared by all app devices; only administrators may change them.
+    match /schools/{schoolId}/gradeScales/{className} {
+      allow read: if schoolId == 'ams-manager-b1434' && signedIn();
+      allow create, update, delete: if schoolId == 'ams-manager-b1434' && hasAdminAccess();
+    }
     match /schools/{schoolId}/schoolClosures/{closureId} {
       allow read: if schoolId == 'ams-manager-b1434' && (hasAdminAccess() || isEnabledTeacher());
       allow create, update, delete: if schoolId == 'ams-manager-b1434' && hasAdminAccess();

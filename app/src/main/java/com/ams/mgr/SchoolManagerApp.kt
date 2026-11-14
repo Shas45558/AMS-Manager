@@ -111,6 +111,7 @@ private const val PREFS = "student_form_defaults"
 @Composable
 fun SchoolManagerApp(repository: SchoolRepository) {
     val context = LocalContext.current
+    GradeScaleStore.initialize(context)
     val authPrefs = remember { context.getSharedPreferences("school_manager_auth", android.content.Context.MODE_PRIVATE) }
     val savedRole = if (authPrefs.getBoolean("remember", false)) authPrefs.getString("saved_role", null) else null
     // Never render a remembered teacher session until startup authorization has been checked
@@ -121,6 +122,17 @@ fun SchoolManagerApp(repository: SchoolRepository) {
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    LaunchedEffect(activeRole) {
+        if (activeRole != null) {
+            runCatching {
+                val remote = FirebaseFirestore.getInstance().collection("schools").document(FirebaseSchoolSync.SCHOOL_ID).collection("gradeScales").get().await()
+                remote.documents.forEach { doc ->
+                    val values = (doc.get("ranges") as? List<*>)?.mapNotNull { (it as? Number)?.toInt() }
+                    if (values?.size == 6 && values.zipWithNext().all { it.first > it.second }) GradeScaleStore.save(doc.id, values)
+                }
+            }
+        }
+    }
 
     fun hasInternetConnection(): Boolean {
         val manager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -194,8 +206,9 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             DrawerItem("ssc_students", "SSC Students", Icons.Default.School),
             DrawerItem("attendance", "Attendance", Icons.Default.CheckCircle),
             DrawerItem("monthly_exam", "Monthly Exam", Icons.Filled.Assignment),
-            DrawerItem("exams", "Exams & Results", Icons.Filled.Assignment),
-            DrawerItem("reports", "Reports", Icons.Default.BarChart),
+            DrawerItem("exams", "Term Exam", Icons.Filled.Assignment),
+            DrawerItem("reports", "Report Card", Icons.Default.BarChart),
+            DrawerItem("grade_changer", "Grade Changer", Icons.Default.Tune),
             DrawerItem("settings", "Sync", Icons.Default.Cloud)
         )
     }
@@ -283,7 +296,11 @@ fun SchoolManagerApp(repository: SchoolRepository) {
 
                 Column(Modifier.fillMaxHeight().padding(bottom = 16.dp)) {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        val visibleItems = if (activeRole == "Teacher") items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "monthly_exam", "exams", "reports", "settings") } else items
+                        val visibleItems = when (activeRole) {
+                            "Teacher" -> items.filter { it.route in setOf("dashboard", "students", "promotion", "ssc_students", "attendance", "monthly_exam", "exams", "reports", "settings") }
+                            "Admin" -> items
+                            else -> items.filterNot { it.route == "grade_changer" }
+                        }
                         items(visibleItems, key = { it.route }) { item ->
                             NavigationDrawerItem(
                                 label = { Text(item.label) },
@@ -407,7 +424,7 @@ fun SchoolManagerApp(repository: SchoolRepository) {
                 }
             }
             composable("exams") {
-                AppScaffold("Exams & Results", drawerState, scope) {
+                AppScaffold("Term Exam", drawerState, scope) {
                     ExamResultsScreen(repository, activeRole == "Teacher", authPrefs.getString("assigned_class", "") ?: "", authPrefs.getString("assigned_section", "") ?: "", (authPrefs.getString("assigned_sections", "") ?: "").split(",").map { it.trim() }.filter { it.isNotBlank() })
                 }
             }
@@ -454,9 +471,14 @@ fun SchoolManagerApp(repository: SchoolRepository) {
             composable("authorization") {
                 AppScaffold("Authorization", drawerState, scope) { AuthorizationScreen() }
             }
+            composable("grade_changer") {
+                AppScaffold("Grade Changer", drawerState, scope) {
+                    GradeChangerScreen(isAdmin = activeRole == "Admin")
+                }
+            }
             composable("settings") {
                 AppScaffold("Sync", drawerState, scope) {
-                    FirebaseSyncScreen()
+                    FirebaseSyncScreen(isAdmin = activeRole == "Admin")
                 }
             }
             composable("about") {
@@ -2218,18 +2240,76 @@ private fun StudentDetailsScreen(
     }
 }
 
+@Composable
+private fun GradeChangerScreen(isAdmin: Boolean) {
+    val classes = listOf("6", "7", "8", "9", "10")
+    var selectedClass by rememberSaveable { mutableStateOf("6") }
+    var ranges by remember(selectedClass) { mutableStateOf(GradeScaleStore.values(selectedClass).map(Int::toString)) }
+    var message by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(selectedClass) {
+        runCatching {
+            val doc = FirebaseFirestore.getInstance().collection("schools").document(FirebaseSchoolSync.SCHOOL_ID).collection("gradeScales").document(selectedClass).get().await()
+            val remote = (doc.get("ranges") as? List<*>)?.mapNotNull { (it as? Number)?.toInt() }
+            if (remote?.size == 6 && remote.zipWithNext().all { it.first > it.second }) {
+                GradeScaleStore.save(selectedClass, remote)
+                ranges = remote.map(Int::toString)
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Class-wise Grade Changer", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        if (!isAdmin) {
+            Text("Only the administrator can change grade ranges.", color = MaterialTheme.colorScheme.error)
+        } else {
+            Text("Set minimum percentage boundaries. The same percentage rules automatically apply to exams out of 10, 20, 25, 75, 100, 200, or any other total.")
+            DropdownField("Class", selectedClass, classes) { selectedClass = it; message = "" }
+            val labels = listOf("A+ starts at (%)", "A starts at (%)", "A- starts at (%)", "B starts at (%)", "C starts at (%)", "D starts at (%)")
+            labels.forEachIndexed { i, label ->
+                OutlinedTextField(value = ranges.getOrElse(i) { "" }, onValueChange = { v -> ranges = ranges.toMutableList().also { while (it.size < 6) it.add(""); it[i] = v.filter(Char::isDigit).take(3) } }, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+            Button(onClick = {
+                val nums = ranges.map { it.toIntOrNull() }
+                if (nums.any { it == null || it !in 0..100 }) message = "Enter percentages from 0 to 100."
+                else {
+                    val valid = nums.filterNotNull()
+                    if (valid.size != 6 || !valid.zipWithNext().all { it.first > it.second }) message = "Ranges must descend: A+ greater than A, then A-, B, C and D."
+                    else {
+                        GradeScaleStore.save(selectedClass, valid)
+                        message = "Saved on this device. Syncing grade settings…"
+                        scope.launch {
+                            runCatching {
+                                FirebaseFirestore.getInstance().collection("schools").document(FirebaseSchoolSync.SCHOOL_ID).collection("gradeScales").document(selectedClass).set(mapOf("className" to selectedClass, "ranges" to valid, "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp())).await()
+                            }.onSuccess { message = "Class $selectedClass grade ranges saved and synced to Firebase." }
+                             .onFailure { message = "Saved on this device, but cloud sync failed: ${it.localizedMessage ?: "check internet and Firestore rules"}." }
+                        }
+                    }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("Save Grade Ranges") }
+            Text("A+ / A / A- / B / C / D / F", style = MaterialTheme.typography.labelLarge)
+            Text("Current values: ${ranges.joinToString("%  •  ")}% and above; below the D boundary = F")
+            if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FirebaseSyncScreen() {
+private fun FirebaseSyncScreen(isAdmin: Boolean = false) {
     val context = LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
     val scope = rememberCoroutineScope()
     val syncer = remember { FirebaseSchoolSync(AppDatabase.get(context)) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Signed in as: ${auth.currentUser?.email ?: auth.currentUser?.uid ?: "not signed in"}. Cloud sync has not run yet.") }
+    var publishType by rememberSaveable { mutableStateOf("Monthly Evaluation") }
+    var publishClass by rememberSaveable { mutableStateOf("6") }
+    var publishMonth by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var publishExam by rememberSaveable { mutableStateOf("First Term") }
+    var publishStatus by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Firebase Sync", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Automatic Sync is enabled. Student, attendance, Monthly Exam, and Exams & Results changes are saved locally first, then queued for Firebase sync. WorkManager waits for internet and retries temporary failures, including when connectivity returns. Opening the app and signing in also queues a sync. You can still tap Sync to run it immediately.")
+        Text("Automatic Sync is enabled. Student, attendance, Monthly Exam, and Term Exam changes are saved locally first, then queued for Firebase sync. WorkManager waits for internet and retries temporary failures, including when connectivity returns. Opening the app and signing in also queues a sync. You can still tap Sync to run it immediately.")
         Text("The administrator owns the student roster and syncs it to the cloud. Teacher devices download the current assigned roster and remove stale local students, so deleted students are not recreated from old teacher copies. Related attendance and exam records are removed too. Teacher account profiles are stored directly in Firestore when created, enabled/disabled, or deleted, so those admin changes are already online. Avoid editing the same mark on two devices before they sync because the last upload may overwrite it.")
         Text(status, style = MaterialTheme.typography.bodyMedium)
         Button(enabled = !busy && auth.currentUser != null, onClick = {
@@ -2256,6 +2336,65 @@ private fun FirebaseSyncScreen() {
             if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             else Icon(Icons.Default.Sync, null)
             Spacer(Modifier.width(8.dp)); Text(if (busy) "Syncing…" else "Sync School Records")
+        }
+        if (isAdmin) {
+            HorizontalDivider()
+            Text("Publish Results to Website", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Admin only. Choose one class before publishing. Monthly Evaluation publishes the selected month. Term Exam can include the average of the selected monthly evaluation months.")
+            DropdownField("Result type", publishType, listOf("Monthly Evaluation", "Term Exam")) { publishType = it; publishStatus = "" }
+            DropdownField("Class", publishClass, listOf("6", "7", "8", "9", "10")) { publishClass = it; publishStatus = "" }
+            if (publishType == "Term Exam") DropdownField("Term", publishExam, listOf("First Term", "Second Term", "Annual")) { publishExam = it }
+            OutlinedTextField(value = publishMonth, onValueChange = { publishMonth = it.take(80) }, label = { Text(if (publishType == "Monthly Evaluation") "Month (YYYY-MM)" else "Monthly evaluation months (comma-separated YYYY-MM)") }, supportingText = { Text(if (publishType == "Monthly Evaluation") "Example: 2026-11" else "Example: 2026-01,2026-02,2026-03") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(enabled = !busy && auth.currentUser != null, onClick = {
+                scope.launch {
+                    busy = true
+                    publishStatus = "Syncing latest app data before publishing…"
+                    try {
+                        val publishingUser = auth.currentUser ?: throw IllegalStateException("Please sign in as an administrator.")
+                        val primaryAdmin = publishingUser.email.equals(FirebaseSchoolSync.ADMIN_EMAIL, ignoreCase = true) && publishingUser.isEmailVerified
+                        val coAdmin = if (!primaryAdmin) FirebaseFirestore.getInstance().collection("adminAccounts").document(publishingUser.uid).get().await() else null
+                        val authorizedAdmin = primaryAdmin || (coAdmin?.exists() == true && coAdmin.getString("role") == "co-admin" && coAdmin.getString("schoolId") == FirebaseSchoolSync.SCHOOL_ID && coAdmin.getBoolean("enabled") == true)
+                        require(authorizedAdmin) { "Only an enabled administrator can publish results." }
+                        val months = publishMonth.split(",").map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                        require(months.isNotEmpty() && months.all { runCatching { YearMonth.parse(it) }.isSuccess }) { "Enter valid month values in YYYY-MM format." }
+                        require(publishType != "Monthly Evaluation" || months.size == 1) { "Select exactly one month for Monthly Evaluation." }
+                        syncer.sync()
+                        val school = FirebaseFirestore.getInstance().collection("schools").document(FirebaseSchoolSync.SCHOOL_ID)
+                        val publication = school.collection("publishedResults")
+                        val now = com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        if (publishType == "Monthly Evaluation") {
+                            val docs = school.collection("monthlyExams").whereEqualTo("className", publishClass).whereEqualTo("yearMonth", months.first()).get().await().documents
+                            require(docs.isNotEmpty()) { "No Monthly Evaluation marks found for Class $publishClass in ${months.first()}." }
+                            for (doc in docs) {
+                                val data = doc.data ?: continue
+                                val studentId = (data["studentId"] as? Number)?.toLong() ?: continue
+                                publication.document("monthly_${months.first()}_${studentId}").set(data + mapOf("resultType" to "Monthly Evaluation", "className" to publishClass, "yearMonth" to months.first(), "published" to true, "publishedAt" to now, "publishedBy" to (auth.currentUser?.email ?: "admin"))).await()
+                                doc.reference.update(mapOf("published" to true, "publishedAt" to now)).await()
+                            }
+                            publishStatus = "Published ${docs.size} student results for Class $publishClass, ${months.first()}."
+                        } else {
+                            val aliases = when (publishExam) { "First Term" -> listOf("First Term", "1st Term"); "Second Term" -> listOf("Second Term", "2nd Term", "Pre-Test Exam"); else -> listOf("Annual", "Annual Exam", "Test Exam") }
+                            val termDocs = aliases.flatMap { type -> school.collection("examMarks").whereEqualTo("className", publishClass).whereEqualTo("examType", type).get().await().documents }.distinctBy { it.id }
+                            require(termDocs.isNotEmpty()) { "No $publishExam marks found for Class $publishClass." }
+                            val monthDocs = months.flatMap { m -> school.collection("monthlyExams").whereEqualTo("className", publishClass).whereEqualTo("yearMonth", m).get().await().documents }
+                            val byStudent = monthDocs.mapNotNull { d -> (d.getLong("studentId") ?: (d.get("studentId") as? Number)?.toLong())?.let { it to (d.data ?: emptyMap()) } }.groupBy({ it.first }, { it.second })
+                            val subjectFields = listOf("bangla", "english", "math", "socialScience", "science", "religion", "physics", "chemistry", "biology", "hMOrAgri")
+                            val averages = byStudent.mapValues { (_, records) -> subjectFields.mapNotNull { key -> val vals = records.mapNotNull { (it[key] as? Number)?.toDouble() }; if (vals.isEmpty()) null else key to vals.average() }.toMap() }
+                            for ((studentId, grouped) in termDocs.groupBy { (it.getLong("studentId") ?: (it.get("studentId") as? Number)?.toLong()) ?: -1L }) {
+                                if (studentId <= 0) continue
+                                val studentTermMarks = grouped.map { it.data ?: emptyMap() }
+                                val studentData = mapOf("resultType" to "Term Exam", "examType" to publishExam, "className" to publishClass, "studentId" to studentId, "monthlyEvaluationMonths" to months, "monthlyAverageBySubject" to (averages[studentId] ?: emptyMap<String, Double>()), "subjectMarks" to studentTermMarks, "published" to true, "publishedAt" to now, "publishedBy" to (auth.currentUser?.email ?: "admin"))
+                                publication.document("term_${publishExam.replace(" ", "_")}_${studentId}").set(studentData).await()
+                            }
+                            termDocs.forEach { it.reference.update(mapOf("published" to true, "publishedAt" to now, "monthlyEvaluationMonths" to months)).await() }
+                            publishStatus = "Published $publishExam results for Class $publishClass, with monthly averages from ${months.joinToString()}."
+                        }
+                    } catch (e: Exception) {
+                        publishStatus = "Publish failed: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                    } finally { busy = false }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Working…" else "Publish Results") }
+            if (publishStatus.isNotBlank()) Text(publishStatus, color = MaterialTheme.colorScheme.primary)
         }
         OutlinedButton(enabled = !busy, onClick = {
             auth.signOut()
@@ -2354,13 +2493,26 @@ private fun displayExamType(className: String, canonical: String): String =
 
 private fun isCombinedPaperKey(key: String): Boolean = key in setOf("bangla1", "bangla2", "english1", "english2")
 
-private fun gradeForExam(total: Int, max: Int): String {
-    if (total <= 0) return "F"
-    val p = total * 100.0 / max.coerceAtLeast(1)
-    return when { p >= 80 -> "A+"; p >= 70 -> "A"; p >= 60 -> "A-"; p >= 50 -> "B"; p >= 40 -> "C"; p >= 33 -> "D"; else -> "F" }
+private object GradeScaleStore {
+    private var prefs: android.content.SharedPreferences? = null
+    fun initialize(context: Context) { prefs = context.applicationContext.getSharedPreferences("class_grade_scales", Context.MODE_PRIVATE) }
+    private fun keyClass(className: String) = className.trim().removePrefix("Class ").trim()
+    fun values(className: String): List<Int> {
+        val raw = prefs?.getString("class_${keyClass(className)}_ranges", null)
+        val parsed = raw?.split(",")?.mapNotNull { it.toIntOrNull() }
+        return if (parsed?.size == 6 && parsed.zipWithNext().all { it.first > it.second } && parsed.first() in 1..100 && parsed.last() in 1..100) parsed else listOf(80,70,60,50,40,33)
+    }
+    fun save(className: String, values: List<Int>) { prefs?.edit()?.putString("class_${keyClass(className)}_ranges", values.joinToString(","))?.apply() }
 }
 
-private fun gradePointForExam(total: Int, max: Int): Double = when (gradeForExam(total, max)) {
+private fun gradeForExam(total: Int, max: Int, className: String = ""): String {
+    if (total <= 0) return "F"
+    val p = total * 100.0 / max.coerceAtLeast(1)
+    val ranges = GradeScaleStore.values(className)
+    return when { p >= ranges[0] -> "A+"; p >= ranges[1] -> "A"; p >= ranges[2] -> "A-"; p >= ranges[3] -> "B"; p >= ranges[4] -> "C"; p >= ranges[5] -> "D"; else -> "F" }
+}
+
+private fun gradePointForExam(total: Int, max: Int, className: String = ""): Double = when (gradeForExam(total, max, className)) {
     "A+" -> 5.0; "A" -> 4.0; "A-" -> 3.5; "B" -> 3.0; "C" -> 2.0; "D" -> 1.0; else -> 0.0
 }
 
@@ -2712,27 +2864,27 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     val combinedKeys = combined.flatMap { it.second }.toSet()
                     val ordinary = applicable.filter { it.key !in combinedKeys }.map { spec ->
                         val adjusted = examMarkTotal(source[spec.key])
-                        gradePointForExam(adjusted, spec.max)
+                        gradePointForExam(adjusted, spec.max, className)
                     }
                     val combinedPoints = combined.map { (_, keys, max) ->
-                        gradePointForExam(keys.sumOf { examMarkTotal(source[it]) }, max)
+                        gradePointForExam(keys.sumOf { examMarkTotal(source[it]) }, max, className)
                     }
                     ordinary + combinedPoints
                 } else applicable.map { spec ->
                     val adjusted = examMarkTotal(source[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt()
-                    gradePointForExam(adjusted, spec.max + 20)
+                    gradePointForExam(adjusted, spec.max + 20, className)
                 }
                 val termHasFail = if (isClass9Or10(className)) {
                     val combinedFail = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200).any { (keys, max) ->
-                        gradeForExam(keys.sumOf { examMarkTotal(source[it]) }, max) == "F"
+                        gradeForExam(keys.sumOf { examMarkTotal(source[it]) }, max, className) == "F"
                     }
                     val ordinaryFail = applicable.filterNot { isCombinedPaperKey(it.key) }.any { spec ->
-                        gradeForExam(examMarkTotal(source[spec.key]), spec.max) == "F"
+                        gradeForExam(examMarkTotal(source[spec.key]), spec.max, className) == "F"
                     }
                     combinedFail || ordinaryFail
                 } else applicable.any { spec ->
                     val adjusted = examMarkTotal(source[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt()
-                    gradeForExam(adjusted, spec.max + 20) == "F"
+                    gradeForExam(adjusted, spec.max + 20, className) == "F"
                 }
                 val termGpa = if (termHasFail || termGpaPoints.isEmpty()) 0.0 else termGpaPoints.average()
 
@@ -2750,7 +2902,7 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                         mcq = if (spec.hasMcq) mark?.mcq?.toString() ?: "—" else "—",
                         total = totalMark,
                         max = spec.max,
-                        gpa = gradePointForExam(totalMark, spec.max)
+                        gpa = gradePointForExam(totalMark, spec.max, className)
                     )
                 }
 
@@ -2760,21 +2912,21 @@ private fun ExamResultsScreen(repository: SchoolRepository, teacherMode: Boolean
                     val annualExam = examTotal(st.id, annual, includeMonthly = true)
                     val annualFail = if (isClass9Or10(className)) {
                         val combinedFail = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200).any { (keys, max) ->
-                            gradeForExam(keys.sumOf { examMarkTotal(annualBySubject[it]) }, max) == "F"
+                            gradeForExam(keys.sumOf { examMarkTotal(annualBySubject[it]) }, max, className) == "F"
                         }
                         combinedFail || applicable.filterNot { isCombinedPaperKey(it.key) }.any { spec ->
-                            gradeForExam(examMarkTotal(annualBySubject[spec.key]), spec.max) == "F"
+                            gradeForExam(examMarkTotal(annualBySubject[spec.key]), spec.max, className) == "F"
                         }
                     } else applicable.any { spec ->
-                        gradeForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20) == "F"
+                        gradeForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20, className) == "F"
                     }
                     val annualGpaPoints = if (isClass9Or10(className)) {
                         val combined = listOf(listOf("bangla1", "bangla2") to 200, listOf("english1", "english2") to 200)
                         val combinedKeys = combined.flatMap { it.first }.toSet()
-                        applicable.filterNot { it.key in combinedKeys }.map { spec -> gradePointForExam(examMarkTotal(annualBySubject[spec.key]), spec.max) } +
-                            combined.map { (keys, max) -> gradePointForExam(keys.sumOf { examMarkTotal(annualBySubject[it]) }, max) }
+                        applicable.filterNot { it.key in combinedKeys }.map { spec -> gradePointForExam(examMarkTotal(annualBySubject[spec.key]), spec.max, className) } +
+                            combined.map { (keys, max) -> gradePointForExam(keys.sumOf { examMarkTotal(annualBySubject[it]) }, max, className) }
                     } else applicable.map { spec ->
-                        gradePointForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20)
+                        gradePointForExam(examMarkTotal(annualBySubject[spec.key]) + monthlyAverageForSubject(st.id, spec.key).roundToInt(), spec.max + 20, className)
                     }
                     val annualGpa = if (annualFail || annualGpaPoints.isEmpty()) 0.0 else annualGpaPoints.average()
 
@@ -3829,6 +3981,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
     var sscYear by rememberSaveable { mutableStateOf(LocalDate.now().year.toString()) }
     var examType by rememberSaveable { mutableStateOf("Annual") }
     var month by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var showMonthPicker by remember { mutableStateOf(false) }
     var startDate by rememberSaveable { mutableStateOf("${LocalDate.now().year}-01-01") }
     var endDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var message by remember { mutableStateOf("") }
@@ -3853,8 +4006,11 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
             } else Text("Assigned section: ${section.ifBlank { assignedSection }}", style = MaterialTheme.typography.bodyMedium)
         }
         if (reportType == "Exam marksheets" || reportType == "Student report cards") {
-            val availableExams = examOptionsForClass(className)
+            val availableExams = if (reportType == "Student report cards") examOptionsForClass(className) + "Monthly Evaluation" else examOptionsForClass(className)
             DropdownField("Exam", displayExamType(className, examType), availableExams) { examType = canonicalExamType(className, it) }
+        }
+        if (reportType == "Student report cards" && examType == "Monthly Evaluation") {
+            OutlinedButton(onClick = { showMonthPicker = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DateRange, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Choose evaluation month: $month") }
         }
         if (reportType == "Student report cards" && className !in listOf("6", "7", "8", "9", "10")) Text("The Amtoli result-card template is configured for Classes 6–10.", color = MaterialTheme.colorScheme.error)
         if (reportType == "Monthly exam reports") OutlinedTextField(value = month, onValueChange = { month = it.take(7) }, label = { Text("Month (YYYY-MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -3911,6 +4067,25 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                         val secondTermMarks = marksFor("Second Term", listOf("Second Term", "2nd Term"))
                         printDetailedExamMarksheetHtml(context, selectedStudents, className, section, examType, marks, firstTermMarks, secondTermMarks)
                         message = "Opened detailed $examType marksheet for Class $className Section $section in landscape print preview. Choose Save as PDF."
+                        return@launch
+                    }
+                    if (reportType == "Student report cards" && examType == "Monthly Evaluation") {
+                        require(className in listOf("6", "7", "8", "9", "10")) { "The result-card template is configured for Classes 6–10." }
+                        require(runCatching { YearMonth.parse(month) }.isSuccess) { "Choose a valid month in YYYY-MM format." }
+                        require(selectedStudents.isNotEmpty()) { "No students found for the selected class/section." }
+                        val monthlyByStudent = repository.monthlyExamsOnce(month).associateBy { it.studentId }
+                        require(monthlyByStudent.isNotEmpty()) { "No Monthly Evaluation marks found for $month." }
+                        val subjectList = examSubjects(className)
+                        val cards = selectedStudents.map { student ->
+                            val record = monthlyByStudent[student.id]
+                            val rows = subjectList.map { (name, key) ->
+                                val value = markFor(record, key)
+                                DocxMarkRow(name, 20, value?.toString().orEmpty(), "—", value?.toString().orEmpty(), if (value == null) "" else gradeForExam(value, 20, className))
+                            }
+                            renderAmtoliCardHtml(student, rows, className, section, "Monthly Evaluation • $month", "", "", "", "")
+                        }
+                        printResultCardsHtml(context, "Monthly Evaluation - Class $className Section $section - $month", cards)
+                        message = "Opened ${selectedStudents.size} monthly evaluation report cards for $month. Each student has a separate page. Choose Save as PDF."
                         return@launch
                     }
                     if (reportType == "Student report cards") {
@@ -4008,7 +4183,7 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
                                 val marks = specs.map { spec -> allMarks[st.id to spec.key]?.let { examMarkTotal(it) } }
                                 val total = marks.filterNotNull().sum()
                                 val max = specs.sumOf { it.max }
-                                rows.add(listOf(st.studentId, st.studentName) + marks.map { it?.toString() ?: "—" } + listOf(if (marks.any { it != null }) total.toString() else "—", if (marks.any { it != null }) gradeForExam(total, max) else "—"))
+                                rows.add(listOf(st.studentId, st.studentName) + marks.map { it?.toString() ?: "—" } + listOf(if (marks.any { it != null }) total.toString() else "—", if (marks.any { it != null }) gradeForExam(total, max, className) else "—"))
                             }
                         }
                     }
@@ -4071,6 +4246,15 @@ private fun ReportsScreen(repository: SchoolRepository, teacherMode: Boolean, as
         }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Creating PDF…" else "Generate & Share PDF") }
         if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.primary)
         Text("Report content is generated from the data currently available on this device. Sync first if you need the latest shared records.", style = MaterialTheme.typography.bodySmall)
+    }
+    if (showMonthPicker) {
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = runCatching { YearMonth.parse(month).atDay(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli() }.getOrNull())
+        DatePickerDialog(onDismissRequest = { showMonthPicker = false }, confirmButton = {
+            TextButton(onClick = {
+                pickerState.selectedDateMillis?.let { millis -> month = YearMonth.from(java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate()).toString() }
+                showMonthPicker = false
+            }) { Text("Select month") }
+        }, dismissButton = { TextButton(onClick = { showMonthPicker = false }) { Text("Cancel") } }) { DatePicker(state = pickerState) }
     }
 }
 
@@ -4195,7 +4379,7 @@ private fun printStudentResultCardHtml(
             else -> setOf(spec.name)
         }
         val r = detail.subjectRows.firstOrNull { it.name in aliases }
-        DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max) }.orEmpty())
+        DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max, className) }.orEmpty())
     }
     val displayRows = applyClass9CombinedPaperGrades(rows, className)
     val monthly = String.format(java.util.Locale.US, "%.2f", detail.monthlyEquivalent)
@@ -4223,7 +4407,7 @@ private fun printBulkResultCardsHtml(
             val mark = marks[student.id to spec.key]
             val total = if (mark == null) "" else ((mark.cq ?: 0) + (mark.mcq ?: 0)).toString()
             DocxMarkRow(spec.name, spec.max, mark?.cq?.toString().orEmpty(), if (spec.hasMcq) mark?.mcq?.toString().orEmpty() else "—", total,
-                if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max))
+                if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max, className))
         }
         val displayRows = applyClass9CombinedPaperGrades(rows, className)
         val firstTotal = termTotal(student.id, firstTermMarks)
@@ -4245,7 +4429,7 @@ private fun renderAmtoliCardHtml(
     val presentRows = rows.filter { it.total.isNotBlank() }
     val gpaRows = rows.filter { it.name != "Oral" && it.total.isNotBlank() }
     val failed = gpaRows.any { it.grade == "F" }
-    val gpa = if (gpaRows.isEmpty() || failed) 0.0 else gpaRows.map { gradePointForExam(it.total.toIntOrNull() ?: 0, it.max) }.average()
+    val gpa = if (gpaRows.isEmpty() || failed) 0.0 else gpaRows.map { gradePointForExam(it.total.toIntOrNull() ?: 0, it.max, className) }.average()
     val grade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
     val obtained = presentRows.sumOf { it.total.toIntOrNull() ?: 0 }
     val combinedSecondNames = setOf("Bangla 2nd Paper", "English 2nd Paper")
@@ -4263,7 +4447,7 @@ private fun renderAmtoliCardHtml(
             val totalValue = if (isCombinedPair) pairedSecond!!.total else row.total
             val maxValue = if (isCombinedPair) 200 else row.max
             val gradeValue = if (isCombinedPair) pairedSecond!!.grade else row.grade
-            val rowGpa = if (totalValue.isBlank()) "" else String.format(java.util.Locale.US, "%.2f", gradePointForExam(totalValue.toIntOrNull() ?: 0, maxValue))
+            val rowGpa = if (totalValue.isBlank()) "" else String.format(java.util.Locale.US, "%.2f", gradePointForExam(totalValue.toIntOrNull() ?: 0, maxValue, className))
             val rowspan = if (isCombinedPair) " rowspan=\"2\"" else ""
             rowHtmlBuilder.append("<tr><td>${index + 1}</td><td>${htmlEscape(row.name)}</td><td>${row.max}</td><td>${htmlEscape(row.cq)}</td><td>${htmlEscape(row.mcq)}</td><td$rowspan>${htmlEscape(totalValue)}</td><td$rowspan>${rowGpa}</td><td$rowspan>${htmlEscape(gradeValue)}</td></tr>")
         }
@@ -4315,8 +4499,8 @@ private fun printDetailedExamMarksheetHtml(
         val subjectMarks = subjects.map { marks[student.id to it.key] }
         val total = subjects.indices.sumOf { index -> subjectMarks[index]?.let { examMarkTotal(it) } ?: 0 }
         val graded = subjects.indices.filter { subjects[it].countsForGpa && subjectMarks[it] != null }
-        val failCount = graded.count { index -> gradeForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) == "F" }
-        val gpa = if (graded.isEmpty() || failCount > 0) 0.0 else graded.map { index -> gradePointForExam(examMarkTotal(subjectMarks[index]), subjects[index].max) }.average().coerceAtMost(5.0)
+        val failCount = graded.count { index -> gradeForExam(examMarkTotal(subjectMarks[index]), subjects[index].max, className) == "F" }
+        val gpa = if (graded.isEmpty() || failCount > 0) 0.0 else graded.map { index -> gradePointForExam(examMarkTotal(subjectMarks[index]), subjects[index].max, className) }.average().coerceAtMost(5.0)
         val max = subjects.sumOf { it.max }
         // Keep the existing average calculation as requested, but label it M.E.A.
         val mea = if (max == 0) 0.0 else total * 100.0 / max
@@ -4354,7 +4538,7 @@ private fun printDetailedExamMarksheetHtml(
                 val obtained = mark?.let { examMarkTotal(it) }
                 append("<td>${obtained?.toString() ?: ""}</td>")
                 if (subject.countsForGpa) {
-                    append("<td>${if (mark == null) "" else gradeForExam(obtained ?: 0, subject.max)}</td>")
+                    append("<td>${if (mark == null) "" else gradeForExam(obtained ?: 0, subject.max, className)}</td>")
                 }
             }
             if (includeSummary) {
@@ -4476,8 +4660,8 @@ private fun printClass9_10ExamMarksheetHtml(
             val total = group.keys.sumOf { key -> byKey[key]?.let(::examMarkTotal) ?: 0 }
             total to group.max
         }
-        val failCount = groupGrades.count { (total, max) -> total <= 0 || gradeForExam(total, max) == "F" }
-        val gpa = if (groupGrades.isEmpty() || failCount > 0) 0.0 else groupGrades.map { (total, max) -> gradePointForExam(total, max) }.average().coerceAtMost(5.0)
+        val failCount = groupGrades.count { (total, max) -> total <= 0 || gradeForExam(total, max, className) == "F" }
+        val gpa = if (groupGrades.isEmpty() || failCount > 0) 0.0 else groupGrades.map { (total, max) -> gradePointForExam(total, max, className) }.average().coerceAtMost(5.0)
         Result(student, byKey, subjectTotal, gpa, failCount, firstTotal, secondTotal, mea, grandTotal, grandTotal / 3.0)
     }
     val rankTotals = results.map { if (isClass9Annual) it.grandTotal else it.total }.distinct().sortedDescending()
@@ -4487,15 +4671,15 @@ private fun printClass9_10ExamMarksheetHtml(
         val a = result.marks[group.keys[0]]
         val b = group.keys.getOrNull(1)?.let { result.marks[it] }
         return when (group.title) {
-            "Bangla" -> "<td>${a?.cq?.toString().orEmpty()}</td><td>${a?.mcq?.toString().orEmpty()}</td><td>${b?.cq?.toString().orEmpty()}</td><td>${b?.mcq?.toString().orEmpty()}</td><td>${if (a != null || b != null) ((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0)).toString() else ""}</td><td>${if (a != null || b != null) gradeForExam((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0), 200) else ""}</td>"
-            "English" -> "<td>${a?.let(::examMarkTotal)?.toString().orEmpty()}</td><td>${b?.let(::examMarkTotal)?.toString().orEmpty()}</td><td>${if (a != null || b != null) ((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0)).toString() else ""}</td><td>${if (a != null || b != null) gradeForExam((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0), 200) else ""}</td>"
+            "Bangla" -> "<td>${a?.cq?.toString().orEmpty()}</td><td>${a?.mcq?.toString().orEmpty()}</td><td>${b?.cq?.toString().orEmpty()}</td><td>${b?.mcq?.toString().orEmpty()}</td><td>${if (a != null || b != null) ((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0)).toString() else ""}</td><td>${if (a != null || b != null) gradeForExam((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0), 200, className) else ""}</td>"
+            "English" -> "<td>${a?.let(::examMarkTotal)?.toString().orEmpty()}</td><td>${b?.let(::examMarkTotal)?.toString().orEmpty()}</td><td>${if (a != null || b != null) ((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0)).toString() else ""}</td><td>${if (a != null || b != null) gradeForExam((a?.let(::examMarkTotal) ?: 0) + (b?.let(::examMarkTotal) ?: 0), 200, className) else ""}</td>"
             else -> {
                 val spec = subjects.first { it.key == group.keys.first() }
                 val total = a?.let(::examMarkTotal)
                 buildString {
                     if (spec.key != "ict" && spec.hasMcq) append("<td>${a?.cq?.toString().orEmpty()}</td><td>${a?.mcq?.toString().orEmpty()}</td>")
                     append("<td>${total?.toString().orEmpty()}</td>")
-                    if (spec.countsForGpa) append("<td>${if (total != null) gradeForExam(total, spec.max) else ""}</td>")
+                    if (spec.countsForGpa) append("<td>${if (total != null) gradeForExam(total, spec.max, className) else ""}</td>")
                 }
             }
         }
@@ -4651,7 +4835,7 @@ private fun applyClass9CombinedPaperGrades(rows: List<DocxMarkRow>, className: S
             val secondTotal = second.total.toIntOrNull()
             if (firstTotal != null && secondTotal != null) {
                 val combined = firstTotal + secondTotal
-                val combinedGrade = gradeForExam(combined, 200)
+                val combinedGrade = gradeForExam(combined, 200, className)
                 result[firstIndex] = first.copy(total = "", grade = "")
                 result[secondIndex] = second.copy(max = 200, total = combined.toString(), grade = combinedGrade)
             }
@@ -4670,7 +4854,7 @@ private fun generateStudentResultCardDocx(
             else -> setOf(spec.name)
         }
         val r = detail.subjectRows.firstOrNull { it.name in aliases }
-        DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max) }.orEmpty())
+        DocxMarkRow(spec.name, spec.max, r?.cq.orEmpty(), r?.mcq.orEmpty(), r?.takeIf { it.total >= 0 }?.total?.toString().orEmpty(), r?.let { gradeForExam(it.total, it.max, className) }.orEmpty())
     }
     return writeAmtoliDocx(context, listOf(student to rows), className, section, detail.examType,
         String.format(java.util.Locale.US, "%.2f", detail.monthlyEquivalent))
@@ -4690,7 +4874,7 @@ private fun generateBulkResultCardsDocx(
             val mark = marks[student.id to spec.key]
             val total = if (mark == null) "" else ((mark.cq ?: 0) + (mark.mcq ?: 0)).toString()
             DocxMarkRow(spec.name, spec.max, mark?.cq?.toString().orEmpty(), if (spec.hasMcq) mark?.mcq?.toString().orEmpty() else "—", total,
-                if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max))
+                if (mark == null) "" else gradeForExam((mark.cq ?: 0) + (mark.mcq ?: 0), spec.max, className))
         }
         lastOutput = writeAmtoliDocx(context, listOf(student to rows), className, section, examType)
     }
@@ -4770,7 +4954,7 @@ private fun writeAmtoliDocx(
     val obtained = presentRows.sumOf { it.total.toIntOrNull() ?: 0 }
     val gpaRows = studentRows.first().second.filter { it.name != "Oral" && it.total.isNotBlank() }
     val failed = gpaRows.any { it.grade == "F" }
-    val gpa = if (gpaRows.isEmpty() || failed) 0.0 else gpaRows.map { gradePointForExam(it.total.toIntOrNull() ?: 0, it.max) }.average()
+    val gpa = if (gpaRows.isEmpty() || failed) 0.0 else gpaRows.map { gradePointForExam(it.total.toIntOrNull() ?: 0, it.max, className) }.average()
     val overallGrade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
     val infoRows = children(infoTable, "tr")
     for (i in 1..6) {
@@ -4989,7 +5173,7 @@ private fun generateStudentResultCardPdf(
         val leftPhysicalRows = logicalLeft.sumOf { it.size }.coerceAtLeast(1)
         val usableH = tableBottom-tableTop-headerH
         val rowH = usableH / leftPhysicalRows
-        val gradeText: (Int, Int) -> String = { total, max -> gradeForExam(total, max) }
+        val gradeText: (Int, Int) -> String = { total, max -> gradeForExam(total, max, className) }
 
         fun drawGroupedRows(x0: Float, widths: List<Float>, groups: List<List<DetailSubjectRow>>, firstSerial: Int, physicalRowH: Float, withSummary: Boolean) {
             var physicalIndex = 0
@@ -5194,8 +5378,8 @@ private fun generateBulkResultCardsPdf(
             }
             val obtained = studentMarks.sumOf { it.third }
             val gpaSubjects = studentMarks.filter { it.first.countsForGpa && it.second != null }
-            val failed = gpaSubjects.any { gradeForExam(it.third, it.first.max) == "F" }
-            val gpa = if (failed || gpaSubjects.isEmpty()) 0.0 else gpaSubjects.map { gradePointForExam(it.third, it.first.max) }.average()
+            val failed = gpaSubjects.any { gradeForExam(it.third, it.first.max, className) == "F" }
+            val gpa = if (failed || gpaSubjects.isEmpty()) 0.0 else gpaSubjects.map { gradePointForExam(it.third, it.first.max, className) }.average()
             val overallGrade = when { gpa >= 5.0 -> "A+"; gpa >= 4.0 -> "A"; gpa >= 3.5 -> "A-"; gpa >= 3.0 -> "B"; gpa >= 2.0 -> "C"; gpa >= 1.0 -> "D"; else -> "F" }
             txt("GPA: ${if (gpaSubjects.isEmpty()) "" else String.format(java.util.Locale.US, "%.2f", gpa)}", 319f, 265f, head)
             txt("Grade: ${if (gpaSubjects.isEmpty()) "" else overallGrade}", 430f, 265f, head)
@@ -5223,7 +5407,7 @@ private fun generateBulkResultCardsPdf(
                     (row + 1).toString(), spec.name, spec.max.toString(),
                     mark?.cq?.toString() ?: "", if (spec.hasMcq) mark?.mcq?.toString() ?: "" else "—",
                     if (mark == null) "" else total.toString(),
-                    if (mark == null) "" else gradeForExam(total, spec.max)
+                    if (mark == null) "" else gradeForExam(total, spec.max, className)
                 )
                 values.forEachIndexed { col, value ->
                     rect(xx, y, xx + widths[col], y + rowHeight)
