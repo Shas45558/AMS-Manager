@@ -2377,12 +2377,24 @@ private fun FirebaseSyncScreen(isAdmin: Boolean = false) {
                             val termDocs = aliases.flatMap { type -> school.collection("examMarks").whereEqualTo("className", publishClass).whereEqualTo("examType", type).get().await().documents }.distinctBy { it.id }
                             require(termDocs.isNotEmpty()) { "No $publishExam marks found for Class $publishClass." }
                             val monthDocs = months.flatMap { m -> school.collection("monthlyExams").whereEqualTo("className", publishClass).whereEqualTo("yearMonth", m).get().await().documents }
-                            val byStudent = monthDocs.mapNotNull { d -> (d.getLong("studentId") ?: (d.get("studentId") as? Number)?.toLong())?.let { it to (d.data ?: emptyMap()) } }.groupBy({ it.first }, { it.second })
+                            val byStudent: Map<Long, List<Map<String, Any?>>> = monthDocs.mapNotNull { d ->
+                                val studentId: Long? = d.getLong("studentId") ?: (d.get("studentId") as? Number)?.toLong()
+                                studentId?.let { id -> Pair(id, d.data ?: emptyMap<String, Any?>()) }
+                            }.groupBy(
+                                keySelector = { pair: Pair<Long, Map<String, Any?>> -> pair.first },
+                                valueTransform = { pair: Pair<Long, Map<String, Any?>> -> pair.second }
+                            )
                             val subjectFields = listOf("bangla", "english", "math", "socialScience", "science", "religion", "physics", "chemistry", "biology", "hMOrAgri")
-                            val averages = byStudent.mapValues { (_, records) -> subjectFields.mapNotNull { key -> val vals = records.mapNotNull { (it[key] as? Number)?.toDouble() }; if (vals.isEmpty()) null else key to vals.average() }.toMap() }
+                            val averages: Map<Long, Map<String, Double>> = byStudent.mapValues { entry ->
+                                val records: List<Map<String, Any?>> = entry.value
+                                subjectFields.mapNotNull { key ->
+                                    val values: List<Double> = records.mapNotNull { record -> (record[key] as? Number)?.toDouble() }
+                                    if (values.isEmpty()) null else Pair(key, values.average())
+                                }.toMap()
+                            }
                             for ((studentId, grouped) in termDocs.groupBy { (it.getLong("studentId") ?: (it.get("studentId") as? Number)?.toLong()) ?: -1L }) {
                                 if (studentId <= 0) continue
-                                val studentTermMarks = grouped.map { it.data ?: emptyMap() }
+                                val studentTermMarks: List<Map<String, Any?>> = grouped.map { it.data ?: emptyMap<String, Any?>() }
                                 val studentData = mapOf("resultType" to "Term Exam", "examType" to publishExam, "className" to publishClass, "studentId" to studentId, "monthlyEvaluationMonths" to months, "monthlyAverageBySubject" to (averages[studentId] ?: emptyMap<String, Double>()), "subjectMarks" to studentTermMarks, "published" to true, "publishedAt" to now, "publishedBy" to (auth.currentUser?.email ?: "admin"))
                                 publication.document("term_${publishExam.replace(" ", "_")}_${studentId}").set(studentData).await()
                             }
